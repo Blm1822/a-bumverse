@@ -1,0 +1,101 @@
+# Albumverse seed list, round 2: Bach to Dolly - broad genre/era coverage.
+# Runs alongside the classic rock/metal list (artists.txt) already in progress.
+
+# Classical
+Johann Sebastian Bach
+Wolfgang Amadeus Mozart
+Ludwig van Beethoven
+Frederic Chopin
+Pyotr Ilyich Tchaikovsky
+Johannes Brahms
+Antonio Vivaldi
+Franz Schubert
+George Frideric Handel
+Claude Debussy
+
+# Country
+Dolly Parton
+Johnny Cash
+Willie Nelson
+Merle Haggard
+Patsy Cline
+Hank Williams
+Loretta Lynn
+George Strait
+Waylon Jennings
+Kenny Rogers
+Garth Brooks
+Reba McEntire
+Alan Jackson
+The Chicks
+
+# Motown / Soul / R&B
+Marvin Gaye
+Stevie Wonder
+Aretha Franklin
+Otis Redding
+The Supremes
+The Temptations
+Al Green
+Sam Cooke
+James Brown
+Ray Charles
+
+# Jazz
+Miles Davis
+John Coltrane
+Louis Armstrong
+Duke Ellington
+Ella Fitzgerald
+Billie Holiday
+Charlie Parker
+Thelonious Monk
+Nina Simone
+
+# Blues
+B.B. King
+Muddy Waters
+Howlin' Wolf
+Robert Johnson
+John Lee Hooker
+
+# Folk
+Bob Dylan
+Joan Baez
+Simon & Garfunkel
+Joni Mitchell
+Woody Guthrie
+
+# Pop
+Michael Jackson
+Madonna
+Whitney Houston
+Prince
+Elton John
+ABBA
+The Beatles
+Elvis Presley
+Cyndi Lauper
+George Michael
+
+# Hip-Hop
+2Pac
+The Notorious B.I.G.
+Run-DMC
+Public Enemy
+N.W.A
+Jay-Z
+Eminem
+
+# Electronic
+Kraftwerk
+Daft Punk
+The Chemical Brothers
+
+# Reggae
+Bob Marley
+
+# Punk
+Ramones
+Sex Pistols
+The Clash

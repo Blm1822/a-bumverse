@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Albumverse</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#171429" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Albumverse" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="top">
+    <a class="logo-link" id="home-link" href="/"><span class="logo">Album<em>verse</em></span></a>
+    <form id="search-form" autocomplete="off">
+      <input id="search-input" type="text" placeholder="Search for an album (e.g. Bark at the Moon)" />
+      <button type="submit">Search</button>
+    </form>
+  </header>
+
+  <main id="app">
+    <div id="home-view">
+      <p class="hint">The music database. Search an album, or browse by artist.</p>
+      <p class="stats" id="stats"></p>
+
+      <section class="rail-section">
+        <h2 class="section-title">Browse artists</h2>
+        <div class="rail" id="artists-grid"></div>
+      </section>
+
+      <section class="rail-section">
+        <h2 class="section-title">Recently added</h2>
+        <div class="rail" id="recent-grid"></div>
+      </section>
+    </div>
+
+    <div id="results" class="hidden"></div>
+    <div id="artist" class="hidden"></div>
+    <div id="album" class="hidden"></div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

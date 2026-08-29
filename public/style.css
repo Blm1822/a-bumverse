@@ -1,0 +1,169 @@
+:root {
+  --bg: #0c0a18;
+  --panel: #171429;
+  --border: #2c2748;
+  --text: #ece9f7;
+  --muted: #9d97b8;
+  --accent: #a78bfa;
+  --accent2: #f472b6;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+}
+
+.logo-link { text-decoration: none; }
+.logo { color: var(--text); font-weight: 800; letter-spacing: 0.5px; font-size: 22px; }
+.logo em {
+  font-style: normal;
+  background: linear-gradient(120deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+#search-form { display: flex; flex: 1; max-width: 560px; gap: 8px; }
+#search-input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #10131a;
+  color: var(--text);
+  font-size: 14px;
+}
+button {
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: none;
+  background: linear-gradient(120deg, var(--accent), var(--accent2));
+  color: #16142a;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:hover { filter: brightness(1.05); }
+
+main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+.hidden { display: none !important; }
+.hint { color: var(--muted); margin-bottom: 4px; }
+.stats { color: var(--muted); font-size: 12px; margin-top: 0; margin-bottom: 28px; }
+#home-view section { margin-bottom: 36px; }
+.section-title { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 0 0 12px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.rail-section { position: relative; }
+.rail {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-behavior: smooth;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.rail::-webkit-scrollbar { height: 8px; }
+.rail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+.rail::-webkit-scrollbar-track { background: transparent; }
+.rail .card { flex: 0 0 180px; width: 180px; scroll-snap-align: start; }
+.rail-section::after {
+  content: '';
+  position: absolute;
+  top: 32px;
+  bottom: 6px;
+  right: 0;
+  width: 48px;
+  background: linear-gradient(to right, transparent, var(--bg));
+  pointer-events: none;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card-img-wrap {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #1f2330;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.card-img-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card-placeholder { font-size: 44px; font-weight: 800; color: rgba(255, 255, 255, 0.75); }
+.card-body { padding: 12px 14px; }
+.card .title { font-weight: 700; margin-bottom: 4px; }
+.card .meta { color: var(--muted); font-size: 13px; }
+
+#album, #artist { margin-top: 8px; }
+.album-head { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+.album-head img { width: 180px; height: 180px; object-fit: cover; border-radius: 8px; background: #1f2330; }
+.album-head h2 { margin: 0 0 6px; font-size: 26px; }
+.album-head .sub { color: var(--muted); }
+#artist h2 { margin: 0 0 6px; font-size: 26px; }
+.sub { color: var(--muted); }
+.back-btn { background: transparent; color: var(--accent); border: 1px solid var(--border); margin-bottom: 16px; }
+.artist-link { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+.artist-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.bio { color: var(--text); line-height: 1.5; max-width: 640px; margin: 10px 0 6px; }
+.wiki-link { color: var(--muted); font-size: 12px; text-decoration: none; }
+.wiki-link:hover { color: var(--accent); }
+
+table.tracks { width: 100%; border-collapse: collapse; }
+table.tracks th, table.tracks td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  font-size: 14px;
+}
+table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+.credit-tag { display: inline-block; background: #1f2330; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
+.credit-tag .role { color: var(--muted); }
+.empty { color: var(--muted); font-style: italic; }
+.loading { color: var(--muted); padding: 40px 0; text-align: center; }
+.error { color: #ff6b6b; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+@media (max-width: 640px) {
+  .top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .logo-link { align-self: flex-start; }
+  #search-form { max-width: 100%; }
+  main { padding: 16px; }
+  .album-head { flex-direction: column; }
+  .album-head img { width: 140px; height: 140px; }
+  .rail .card { flex-basis: 148px; width: 148px; }
+  table.tracks th, table.tracks td { padding: 8px 6px; font-size: 13px; }
+}

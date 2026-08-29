@@ -1,0 +1,13 @@
+{
+  "name": "Albumverse",
+  "short_name": "Albumverse",
+  "description": "A music database - search albums, see who wrote and performed every track.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0a18",
+  "theme_color": "#171429",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

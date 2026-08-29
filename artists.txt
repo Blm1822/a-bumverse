@@ -1,0 +1,57 @@
+# Albumverse seed list: classic rock + metal
+# Lines starting with # are ignored. One artist name per line.
+# Run with: npm run import -- --file artists.txt
+
+# Classic rock
+Led Zeppelin
+Pink Floyd
+The Rolling Stones
+The Who
+Deep Purple
+Rush
+Fleetwood Mac
+Eagles
+Aerosmith
+AC/DC
+Queen
+Van Halen
+Guns N' Roses
+Lynyrd Skynyrd
+ZZ Top
+Boston
+Journey
+Foreigner
+Bad Company
+Thin Lizzy
+Cream
+Jimi Hendrix
+The Doors
+Creedence Clearwater Revival
+Blue Oyster Cult
+Kansas
+Styx
+Heart
+Yes
+Jethro Tull
+
+# Metal
+Metallica
+Iron Maiden
+Judas Priest
+Motorhead
+Megadeth
+Slayer
+Anthrax
+Pantera
+Dio
+Alice Cooper
+Kiss
+Whitesnake
+Scorpions
+Def Leppard
+Motley Crue
+Twisted Sister
+Dokken
+Venom
+Testament
+Danzig

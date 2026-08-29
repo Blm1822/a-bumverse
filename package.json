@@ -1,0 +1,16 @@
+{
+  "name": "albumverse",
+  "version": "0.3.0",
+  "description": "Albumverse - a music database. Search albums, browse tracklists, see writers and performers.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "import": "node scripts/import.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-rate-limit": "^8.6.2"
+  }
+}
