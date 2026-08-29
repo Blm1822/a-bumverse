@@ -74,6 +74,17 @@ CREATE TABLE IF NOT EXISTS album_genres (
   PRIMARY KEY (album_mbid, genre)
 );
 
+-- Persisted MusicBrainz response cache. This used to be an in-memory Map in
+-- mb.js, which meant every restart (every deploy, per the comment on
+-- launchSeedImports below) threw the whole thing away and re-hammered
+-- MusicBrainz's ~1req/sec budget for URLs it had *just* fetched. Living in
+-- the same DB file survives restarts for free.
+CREATE TABLE IF NOT EXISTS mb_cache (
+  url TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
@@ -81,6 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_credits_track ON track_credits(track_id);
 CREATE INDEX IF NOT EXISTS idx_pageviews_created ON page_views(created_at);
 CREATE INDEX IF NOT EXISTS idx_pageviews_path ON page_views(path);
 CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre);
+CREATE INDEX IF NOT EXISTS idx_mb_cache_expires ON mb_cache(expires_at);
 `);
 
 // Migration for DBs created before added_at existed.
@@ -105,6 +117,33 @@ db.exec(`
   SELECT DISTINCT tc.artist_mbid, tc.name FROM track_credits tc
   WHERE tc.artist_mbid IS NOT NULL
 `);
+
+// Both server.js and scripts/import.js import this module, and a purged-on-
+// read cache still leaks rows nobody ever reads again once they've expired -
+// so purge on boot and on a slow interval too. unref() so the standalone
+// import script (which otherwise runs to completion and exits) doesn't get
+// held open forever by a timer nothing else needs.
+db.prepare('DELETE FROM mb_cache WHERE expires_at < ?').run(Date.now());
+setInterval(() => {
+  db.prepare('DELETE FROM mb_cache WHERE expires_at < ?').run(Date.now());
+}, 10 * 60 * 1000).unref();
+
+export function getCachedResponse(url) {
+  const row = db.prepare('SELECT data, expires_at FROM mb_cache WHERE url = ?').get(url);
+  if (!row) return undefined;
+  if (row.expires_at < Date.now()) {
+    db.prepare('DELETE FROM mb_cache WHERE url = ?').run(url);
+    return undefined;
+  }
+  return JSON.parse(row.data);
+}
+
+export function setCachedResponse(url, data, ttlMs) {
+  db.prepare(
+    `INSERT INTO mb_cache (url, data, expires_at) VALUES (?, ?, ?)
+     ON CONFLICT(url) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at`
+  ).run(url, JSON.stringify(data), Date.now() + ttlMs);
+}
 
 export function upsertArtist({ mbid, name, disambiguation }) {
   db.prepare(

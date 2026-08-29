@@ -1,13 +1,14 @@
 // Shared, rate-limited MusicBrainz client. MusicBrainz asks unauthenticated
 // clients to stay at ~1 request/second, so every call funnels through one
-// serialized queue with an in-memory cache to avoid re-hitting it needlessly.
+// serialized queue with a disk-persisted cache (survives restarts/deploys)
+// to avoid re-hitting it needlessly.
+import { getCachedResponse, setCachedResponse } from './db.js';
 
 const MB_ROOT = 'https://musicbrainz.org/ws/2';
 export const CAA_ROOT = 'https://coverartarchive.org';
 const USER_AGENT = 'Albumverse/0.3.0 (music database project; contact: none)';
 
 let queue = Promise.resolve();
-const cache = new Map();
 const CACHE_TTL_MS = 1000 * 60 * 30;
 
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
@@ -39,12 +40,12 @@ async function runWithRetry(url) {
 }
 
 export function mbFetch(url) {
-  const cached = cache.get(url);
-  if (cached && cached.expires > Date.now()) return Promise.resolve(cached.data);
+  const cached = getCachedResponse(url);
+  if (cached !== undefined) return Promise.resolve(cached);
 
   const run = () =>
     runWithRetry(url).then((data) => {
-      cache.set(url, { data, expires: Date.now() + CACHE_TTL_MS });
+      setCachedResponse(url, data, CACHE_TTL_MS);
       return data;
     });
 
