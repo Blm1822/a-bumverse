@@ -142,6 +142,57 @@ function artistCard(a) {
   return card;
 }
 
+async function loadHero() {
+  const heroEl = document.getElementById('hero');
+  try {
+    const res = await fetch('/api/featured');
+    const data = await res.json();
+    if (!data || !data.id) {
+      heroEl.classList.add('hidden');
+      return;
+    }
+    heroEl.classList.remove('hidden');
+    heroEl.innerHTML = `
+      <div class="hero-art">${data.coverArtUrl ? `<img src="${data.coverArtUrl}" alt="" onerror="this.parentElement.style.visibility='hidden'" />` : ''}</div>
+      <div class="hero-body">
+        <div class="hero-eyebrow">Featured album</div>
+        <h1>${escapeHtml(data.title)}</h1>
+        <div class="hero-meta">${escapeHtml(data.artist || '')}${data.date ? ' · ' + escapeHtml(data.date.slice(0, 4)) : ''}${data.type ? ' · ' + escapeHtml(data.type) : ''}</div>
+        <button class="hero-cta" type="button">View tracklist &rarr;</button>
+      </div>
+    `;
+    heroEl.onclick = () => navigate(`/album/${data.id}`);
+  } catch {
+    heroEl.classList.add('hidden');
+  }
+}
+
+async function loadTrending() {
+  const section = document.getElementById('trending-section');
+  const rail = document.getElementById('trending-rail');
+  try {
+    const res = await fetch('/api/trending');
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    rail.innerHTML = '';
+    for (const t of items) {
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'trend-pill';
+      pill.textContent = t.query;
+      pill.addEventListener('click', () => navigate(`/search?q=${encodeURIComponent(t.query)}`));
+      rail.appendChild(pill);
+    }
+  } catch {
+    section.classList.add('hidden');
+  }
+}
+
 async function renderHomeRails() {
   try {
     const res = await fetch('/api/artists');
@@ -169,8 +220,16 @@ function renderHome() {
   setTitle(null);
   showOnly(homeView);
   loadStats();
+  loadHero();
+  loadTrending();
   renderHomeRails();
-  if (!homeTimer) homeTimer = setInterval(() => { if (!homeView.classList.contains('hidden')) renderHomeRails(); }, 10000);
+  if (!homeTimer) {
+    homeTimer = setInterval(() => {
+      if (homeView.classList.contains('hidden')) return;
+      renderHomeRails();
+      loadTrending();
+    }, 10000);
+  }
 }
 
 async function renderSearch(query) {

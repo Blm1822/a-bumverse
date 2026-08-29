@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary } from './db.js';
+import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 
@@ -150,6 +150,14 @@ app.get('/api/recent', (req, res) => {
 
 app.get('/api/artists', (req, res) => {
   res.json({ results: listArtists(18, { random: true }) });
+});
+
+app.get('/api/featured', (req, res) => {
+  res.json(featuredAlbum() || {});
+});
+
+app.get('/api/trending', (req, res) => {
+  res.json({ results: trendingSearches(10) });
 });
 
 app.get('/api/artist/:mbid', async (req, res) => {

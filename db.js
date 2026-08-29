@@ -357,6 +357,44 @@ export function getArtistLocal(mbid) {
   return { ...artist, albums, appearances };
 }
 
+// Most-viewed album in the last 7 days, so the homepage spotlight reflects
+// actual visitor interest rather than just whatever imported last. Falls back
+// to the newest album once traffic is too thin to have a real "most viewed".
+export function featuredAlbum() {
+  const topViewed = db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+       FROM page_views pv
+       JOIN albums al ON pv.path = '/album/' || al.mbid
+       WHERE pv.created_at >= datetime('now', '-7 days')
+       GROUP BY al.mbid
+       ORDER BY COUNT(pv.id) DESC
+       LIMIT 1`
+    )
+    .get();
+  if (topViewed) return topViewed;
+
+  return (
+    db
+      .prepare(
+        `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+         FROM albums ORDER BY added_at DESC, rowid DESC LIMIT 1`
+      )
+      .get() || null
+  );
+}
+
+export function trendingSearches(limit = 8) {
+  return db
+    .prepare(
+      `SELECT query, COUNT(*) as n FROM page_views
+       WHERE path = '/search' AND query IS NOT NULL AND query != ''
+         AND created_at >= datetime('now', '-7 days')
+       GROUP BY query ORDER BY n DESC LIMIT ?`
+    )
+    .all(limit);
+}
+
 export function stats() {
   const artists = db.prepare('SELECT COUNT(*) as n FROM artists').get().n;
   const albums = db.prepare('SELECT COUNT(*) as n FROM albums').get().n;
