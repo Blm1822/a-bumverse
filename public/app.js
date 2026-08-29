@@ -14,6 +14,7 @@ const statsEl = document.getElementById('stats');
 const homeLink = document.getElementById('home-link');
 const artistsGrid = document.getElementById('artists-grid');
 const recentGrid = document.getElementById('recent-grid');
+const suggestDropdown = document.getElementById('suggest-dropdown');
 
 function fmtLength(ms) {
   if (!ms) return '';
@@ -544,8 +545,78 @@ async function renderAlbum(id) {
   }
 }
 
+// --- Search-box typeahead: local-only, debounced, race-safe (a slow
+// response for an earlier keystroke is discarded if a newer one already
+// landed). Deliberately hits /api/suggest, never /api/search - the latter
+// can fall through to a several-second MusicBrainz retry on thin results,
+// which would make typing feel broken. ---
+
+let suggestTimer = null;
+let suggestToken = 0;
+
+function closeSuggest() {
+  suggestDropdown.classList.add('hidden');
+  suggestDropdown.innerHTML = '';
+}
+
+function suggestItem(r) {
+  const item = document.createElement('div');
+  item.className = 'suggest-item';
+  item.innerHTML = `
+    ${r.coverArtUrl ? `<img class="suggest-thumb" src="${r.coverArtUrl}" alt="" onerror="this.remove()" />` : '<div class="suggest-thumb"></div>'}
+    <div class="suggest-text">
+      <div class="suggest-title">${escapeHtml(r.title)}</div>
+      <div class="suggest-meta">${escapeHtml(r.artist || '')}</div>
+    </div>
+  `;
+  // mousedown (not click) + preventDefault fires before the input's blur
+  // would close the dropdown, and keeps focus from ever leaving the input.
+  item.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    closeSuggest();
+    navigate(`/album/${r.id}`);
+  });
+  return item;
+}
+
+input.addEventListener('input', () => {
+  clearTimeout(suggestTimer);
+  const q = input.value.trim();
+  if (!q) {
+    closeSuggest();
+    return;
+  }
+  suggestTimer = setTimeout(async () => {
+    const myToken = ++suggestToken;
+    try {
+      const res = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (myToken !== suggestToken) return;
+      const items = data.results || [];
+      if (!items.length) {
+        closeSuggest();
+        return;
+      }
+      suggestDropdown.innerHTML = '';
+      for (const r of items) suggestDropdown.appendChild(suggestItem(r));
+      suggestDropdown.classList.remove('hidden');
+    } catch {
+      closeSuggest();
+    }
+  }, 200);
+});
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSuggest();
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-input-wrap')) closeSuggest();
+});
+
 form.addEventListener('submit', (e) => {
   e.preventDefault();
+  closeSuggest();
   const q = input.value.trim();
   if (q) navigate(`/search?q=${encodeURIComponent(q)}`);
   else navigate('/');

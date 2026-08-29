@@ -22,7 +22,10 @@
       <a href="/recent" id="nav-recent">Recently added</a>
     </nav>
     <form id="search-form" autocomplete="off">
-      <input id="search-input" type="text" placeholder="Search for an album (e.g. Bark at the Moon)" />
+      <div class="search-input-wrap">
+        <input id="search-input" type="text" placeholder="Search for an album (e.g. Bark at the Moon)" />
+        <div class="suggest-dropdown hidden" id="suggest-dropdown"></div>
+      </div>
       <button type="submit">Search</button>
     </form>
   </header>

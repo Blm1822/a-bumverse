@@ -87,6 +87,15 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.use(express.json());
 app.use('/api/', apiLimiter);
 
+// Fast, local-only, no MusicBrainz fallback - unlike /api/search this is
+// meant to be called on every keystroke, so it can never afford the live
+// lookup's multi-second retry path.
+app.get('/api/suggest', (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json({ results: [] });
+  res.json({ results: searchLocal(q, 8) });
+});
+
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
