@@ -2,6 +2,7 @@ const homeView = document.getElementById('home-view');
 const resultsEl = document.getElementById('results');
 const artistEl = document.getElementById('artist');
 const albumEl = document.getElementById('album');
+const decadeEl = document.getElementById('decade');
 const form = document.getElementById('search-form');
 const input = document.getElementById('search-input');
 const statsEl = document.getElementById('stats');
@@ -40,7 +41,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl];
 }
 
 function showOnly(el) {
@@ -59,6 +60,7 @@ function route() {
   const parts = location.pathname.split('/').filter(Boolean);
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
+  if (parts[0] === 'decade' && parts[1]) return renderDecade(parts[1]);
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -193,6 +195,54 @@ async function loadTrending() {
   }
 }
 
+async function loadDecades() {
+  const section = document.getElementById('decades-section');
+  const rail = document.getElementById('decades-rail');
+  try {
+    const res = await fetch('/api/decades');
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    rail.innerHTML = '';
+    for (const d of items) {
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'trend-pill';
+      pill.textContent = `${d.decade}s (${d.n})`;
+      pill.addEventListener('click', () => navigate(`/decade/${d.decade}`));
+      rail.appendChild(pill);
+    }
+  } catch {
+    section.classList.add('hidden');
+  }
+}
+
+async function renderDecade(decade) {
+  showOnly(decadeEl);
+  setTitle(`${decade}s`);
+  decadeEl.innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    const res = await fetch(`/api/decade/${decade}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const items = data.results || [];
+    decadeEl.innerHTML = `
+      <button class="back-btn" id="decade-back-btn">&larr; Back</button>
+      <h2 class="section-title">${escapeHtml(decade)}s</h2>
+      ${items.length ? '<div class="grid" id="decade-grid"></div>' : '<p class="empty">No albums on file for this decade yet.</p>'}
+    `;
+    document.getElementById('decade-back-btn').addEventListener('click', () => history.back());
+    const grid = document.getElementById('decade-grid');
+    if (grid) for (const al of items) grid.appendChild(albumCard(al));
+  } catch (err) {
+    decadeEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
 async function renderHomeRails() {
   try {
     const res = await fetch('/api/artists');
@@ -222,6 +272,7 @@ function renderHome() {
   loadStats();
   loadHero();
   loadTrending();
+  loadDecades();
   renderHomeRails();
   if (!homeTimer) {
     homeTimer = setInterval(() => {

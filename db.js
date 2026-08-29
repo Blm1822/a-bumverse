@@ -395,6 +395,32 @@ export function trendingSearches(limit = 8) {
     .all(limit);
 }
 
+// Decades with at least one album, oldest first, so the homepage tiles don't
+// show empty decades (e.g. nothing pre-1950 until the classical seed catches up).
+export function decadeCounts() {
+  return db
+    .prepare(
+      `SELECT CAST(substr(release_date, 1, 3) || '0' AS INTEGER) as decade, COUNT(*) as n
+       FROM albums
+       WHERE release_date IS NOT NULL AND length(release_date) >= 4
+       GROUP BY decade
+       ORDER BY decade ASC`
+    )
+    .all();
+}
+
+export function albumsByDecade(decade, limit = 60) {
+  return db
+    .prepare(
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+       FROM albums
+       WHERE release_date >= ? AND release_date < ?
+       ORDER BY release_date ASC
+       LIMIT ?`
+    )
+    .all(String(decade), String(decade + 10), limit);
+}
+
 export function stats() {
   const artists = db.prepare('SELECT COUNT(*) as n FROM artists').get().n;
   const albums = db.prepare('SELECT COUNT(*) as n FROM albums').get().n;

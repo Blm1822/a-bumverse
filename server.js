@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches } from './db.js';
+import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 
@@ -160,6 +160,19 @@ app.get('/api/trending', (req, res) => {
   res.json({ results: trendingSearches(10) });
 });
 
+app.get('/api/decades', (req, res) => {
+  res.json({ results: decadeCounts() });
+});
+
+const DECADE_RE = /^\d{4}$/;
+app.get('/api/decade/:decade', (req, res) => {
+  const decade = Number(req.params.decade);
+  if (!DECADE_RE.test(req.params.decade) || decade % 10 !== 0) {
+    return res.status(400).json({ error: 'Not a valid decade.' });
+  }
+  res.json({ results: albumsByDecade(decade) });
+});
+
 app.get('/api/artist/:mbid', async (req, res) => {
   const { mbid } = req.params;
   if (!MBID_RE.test(mbid)) {
@@ -229,6 +242,16 @@ app.get('/artist/:mbid', (req, res) => {
   if (!artist) return res.sendFile(indexHtmlPath);
   const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
   res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl }));
+});
+
+app.get('/decade/:decade', (req, res) => {
+  logView(req, null);
+  const decade = req.params.decade;
+  if (!DECADE_RE.test(decade) || Number(decade) % 10 !== 0) return res.sendFile(indexHtmlPath);
+  res.send(renderIndexWithMeta(req, {
+    title: `${decade}s`,
+    description: `Albums released in the ${decade}s on Albumverse.`,
+  }));
 });
 
 app.get('/search', (req, res) => {
