@@ -241,8 +241,19 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 }
 .genre-tag:hover { color: var(--accent); border-color: var(--accent); }
 .bio { color: var(--text); line-height: 1.5; max-width: 640px; margin: 10px 0 6px; }
+.artist-links { display: flex; align-items: center; gap: 14px; margin-top: 8px; flex-wrap: wrap; }
 .wiki-link { color: var(--muted); font-size: 12px; text-decoration: none; }
 .wiki-link:hover { color: var(--accent); }
+.merch-link {
+  color: #16142a;
+  background: linear-gradient(120deg, var(--accent), var(--accent2));
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+.merch-link:hover { filter: brightness(1.05); }
 
 table.tracks { width: 100%; border-collapse: collapse; }
 table.tracks th, table.tracks td {

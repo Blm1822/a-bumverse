@@ -16,6 +16,16 @@ const artistsGrid = document.getElementById('artists-grid');
 const recentGrid = document.getElementById('recent-grid');
 const suggestDropdown = document.getElementById('suggest-dropdown');
 
+// Fired once at load, awaited inside renderArtist() so even the first artist
+// page view (not just later ones) gets the affiliate tag if one's set.
+const configPromise = fetch('/api/config').then((r) => r.json()).catch(() => ({}));
+
+function merchLink(artistName, amazonAssociateTag) {
+  const q = encodeURIComponent(`${artistName} merch`);
+  const tag = amazonAssociateTag ? `&tag=${encodeURIComponent(amazonAssociateTag)}` : '';
+  return `https://www.amazon.com/s?k=${q}${tag}`;
+}
+
 function fmtLength(ms) {
   if (!ms) return '';
   const totalSec = Math.round(ms / 1000);
@@ -449,6 +459,7 @@ async function renderArtist(id) {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     setTitle(data.name);
+    const config = await configPromise;
 
     artistEl.innerHTML = `
       <button class="back-btn" id="artist-back-btn">&larr; Back</button>
@@ -458,7 +469,10 @@ async function renderArtist(id) {
           <h2>${escapeHtml(data.name)}</h2>
           ${data.disambiguation ? `<div class="sub">${escapeHtml(data.disambiguation)}</div>` : ''}
           ${data.bio ? `<p class="bio">${escapeHtml(data.bio)}</p>` : ''}
-          ${data.wikiUrl ? `<a class="wiki-link" href="${data.wikiUrl}" target="_blank" rel="noopener">via Wikipedia</a>` : ''}
+          <div class="artist-links">
+            ${data.wikiUrl ? `<a class="wiki-link" href="${data.wikiUrl}" target="_blank" rel="noopener">via Wikipedia</a>` : ''}
+            <a class="merch-link" href="${merchLink(data.name, config.amazonAssociateTag)}" target="_blank" rel="noopener sponsored">Shop ${escapeHtml(data.name)} merch &rarr;</a>
+          </div>
         </div>
       </div>
       ${(data.albums || []).length ? `

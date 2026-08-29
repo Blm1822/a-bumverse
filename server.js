@@ -162,6 +162,13 @@ app.get('/api/stats', (req, res) => {
   res.json(stats());
 });
 
+// Public, non-secret site config the frontend needs at runtime - keeps
+// affiliate tags an env var away instead of hardcoded/rebuilt into the JS
+// (there's no build step to inject them at deploy time otherwise).
+app.get('/api/config', (req, res) => {
+  res.json({ amazonAssociateTag: process.env.AMAZON_ASSOCIATE_TAG || null });
+});
+
 app.get('/api/recent', (req, res) => {
   res.json({ results: recentlyAdded(14) });
 });
@@ -257,7 +264,54 @@ function escapeAttr(str) {
   }[c]));
 }
 
-function renderIndexWithMeta(req, { title, description, image }) {
+// ISO 8601 duration (e.g. "PT4M56S") - the format schema.org's MusicRecording
+// duration property expects.
+function isoDuration(ms) {
+  if (!ms) return undefined;
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `PT${m}M${s}S`;
+}
+
+// Structured data so search engines can show rich results (cover art, track
+// listings, artist info) instead of a plain blue link - meaningfully better
+// SEO than the og:/twitter: meta tags alone, which only control how a link
+// looks when *shared*, not how it's indexed.
+function albumJsonLd(req, album) {
+  const url = `${req.protocol}://${req.get('host')}/album/${album.id}`;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'MusicAlbum',
+    name: album.title,
+    url,
+    byArtist: (album.artists || []).map((a) => ({ '@type': 'MusicGroup', name: a.name })),
+    datePublished: album.date || undefined,
+    image: album.coverArtUrl || undefined,
+    genre: (album.genres || []).length ? album.genres : undefined,
+    numTracks: (album.tracks || []).length || undefined,
+    track: (album.tracks || []).map((t) => ({
+      '@type': 'MusicRecording',
+      name: t.title,
+      duration: isoDuration(t.length),
+    })),
+  };
+}
+
+function artistJsonLd(req, artist) {
+  const url = `${req.protocol}://${req.get('host')}/artist/${artist.id}`;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'MusicGroup',
+    name: artist.name,
+    url,
+    description: artist.bio || undefined,
+    image: artist.coverArtUrl || undefined,
+    sameAs: artist.wikiUrl ? [artist.wikiUrl] : undefined,
+  };
+}
+
+function renderIndexWithMeta(req, { title, description, image, jsonLd }) {
   let html = fs.readFileSync(indexHtmlPath, 'utf8');
   const safeTitle = escapeAttr(title || 'Albumverse');
   const safeDesc = escapeAttr(description || 'A music database - search albums, see who wrote and performed every track.');
@@ -270,6 +324,10 @@ function renderIndexWithMeta(req, { title, description, image }) {
     image ? `<meta property="og:image" content="${escapeAttr(image)}" />` : '',
     `<meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}" />`,
     `<meta name="description" content="${safeDesc}" />`,
+    // Escape "<" so a title/bio containing a literal "</script>" (album
+    // titles are free text, bios are scraped from Wikipedia) can't break out
+    // of the script tag early - JSON.stringify alone doesn't escape "/".
+    jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>` : '',
   ].join('\n    ');
   html = html.replace('<title>Albumverse</title>', `<title>${safeTitle} — Albumverse</title>\n    ${tags}`);
   return html;
@@ -280,7 +338,7 @@ app.get('/album/:mbid', (req, res) => {
   const album = MBID_RE.test(req.params.mbid) ? getAlbumLocal(req.params.mbid) : null;
   if (!album) return res.sendFile(indexHtmlPath);
   const description = `${album.artist} · ${album.type}${album.date ? ' · ' + album.date : ''} — tracklist, writers, and performers on Albumverse.`;
-  res.send(renderIndexWithMeta(req, { title: album.title, description, image: album.coverArtUrl }));
+  res.send(renderIndexWithMeta(req, { title: album.title, description, image: album.coverArtUrl, jsonLd: albumJsonLd(req, album) }));
 });
 
 app.get('/artist/:mbid', (req, res) => {
@@ -288,7 +346,7 @@ app.get('/artist/:mbid', (req, res) => {
   const artist = MBID_RE.test(req.params.mbid) ? getArtistLocal(req.params.mbid) : null;
   if (!artist) return res.sendFile(indexHtmlPath);
   const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
-  res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl }));
+  res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl, jsonLd: artistJsonLd(req, artist) }));
 });
 
 app.get('/artists', (req, res) => {
