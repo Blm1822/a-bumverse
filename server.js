@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 
@@ -89,29 +89,35 @@ app.use('/api/', apiLimiter);
 
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
-  if (!q) return res.json({ results: [] });
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  if (!q) return res.json({ results: [], total: 0 });
 
-  const local = searchLocal(q);
-  if (local.length >= LOCAL_RESULT_FLOOR) {
-    return res.json({ results: local });
-  }
+  const local = searchLocal(q, 24, offset);
 
-  try {
-    const live = await searchReleaseGroups(q);
-    const seen = new Set(local.map((r) => r.id));
-    const merged = [...local];
-    for (const r of live) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        merged.push({ ...r, inDb: false });
+  // Only the true first page ever merges in a live MusicBrainz search, and
+  // only when local results are thin - MusicBrainz's own result set doesn't
+  // compose with our local offset, so every later page (and any page once
+  // local coverage is decent) is local-only with an exact DB-backed total,
+  // which is what "load more" needs to know when to stop.
+  if (offset === 0 && local.length < LOCAL_RESULT_FLOOR) {
+    try {
+      const live = await searchReleaseGroups(q);
+      const seen = new Set(local.map((r) => r.id));
+      const merged = [...local];
+      for (const r of live) {
+        if (!seen.has(r.id)) {
+          seen.add(r.id);
+          merged.push({ ...r, inDb: false });
+        }
       }
+      return res.json({ results: merged, total: merged.length });
+    } catch (err) {
+      console.error('live search failed', err.message);
+      // MusicBrainz hiccup shouldn't break search entirely - fall back to what we have locally.
     }
-    res.json({ results: merged });
-  } catch (err) {
-    console.error('live search failed', err.message);
-    // MusicBrainz hiccup shouldn't break search entirely - fall back to what we have locally.
-    res.json({ results: local });
   }
+
+  res.json({ results: local, total: countSearchLocal(q) });
 });
 
 app.get('/api/album/:mbid', async (req, res) => {

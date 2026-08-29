@@ -182,7 +182,7 @@ export function upsertAlbum(detail, artistMbids) {
   }
 }
 
-export function searchLocal(query, limit = 24) {
+export function searchLocal(query, limit = 24, offset = 0) {
   const like = `%${query}%`;
   return db
     .prepare(
@@ -190,9 +190,19 @@ export function searchLocal(query, limit = 24) {
        FROM albums
        WHERE title LIKE ? COLLATE NOCASE OR artist_credit LIKE ? COLLATE NOCASE
        ORDER BY release_date ASC
-       LIMIT ?`
+       LIMIT ? OFFSET ?`
     )
-    .all(like, like, limit);
+    .all(like, like, limit, offset);
+}
+
+export function countSearchLocal(query) {
+  const like = `%${query}%`;
+  return db
+    .prepare(
+      `SELECT COUNT(*) as n FROM albums
+       WHERE title LIKE ? COLLATE NOCASE OR artist_credit LIKE ? COLLATE NOCASE`
+    )
+    .get(like, like).n;
 }
 
 export function recentlyAdded(limit = 12) {

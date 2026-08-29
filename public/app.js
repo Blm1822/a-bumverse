@@ -263,7 +263,8 @@ async function loadPage({ url, grid, button, offset, cardFn }) {
   button.disabled = true;
   button.textContent = 'Loading…';
   try {
-    const res = await fetch(`${url}?offset=${offset}`);
+    const sep = url.includes('?') ? '&' : '?';
+    const res = await fetch(`${url}${sep}offset=${offset}`);
     const data = await res.json();
     const items = data.results || [];
     for (const item of items) grid.appendChild(cardFn(item));
@@ -411,16 +412,29 @@ async function renderSearch(query) {
   showOnly(resultsEl);
   setTitle(`Search: ${query}`);
   resultsEl.innerHTML = '<div class="loading">Searching…</div>';
+  const searchUrl = `/api/search?q=${encodeURIComponent(query)}`;
   try {
-    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+    const res = await fetch(searchUrl);
     const data = await res.json();
     if (!data.results || !data.results.length) {
       resultsEl.innerHTML = '<p class="empty">No albums found.</p>';
       return;
     }
-    resultsEl.innerHTML = '<div class="grid" id="search-grid"></div>';
+    resultsEl.innerHTML = `
+      <div class="grid" id="search-grid"></div>
+      <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="search-load-more">Load more</button></div>
+    `;
     const grid = document.getElementById('search-grid');
     for (const r of data.results) grid.appendChild(albumCard(r));
+
+    let offset = data.results.length;
+    const total = data.total || 0;
+    const button = document.getElementById('search-load-more');
+    button.parentElement.classList.toggle('hidden', offset >= total);
+    button.addEventListener('click', async () => {
+      const next = await loadPage({ url: searchUrl, grid, button, offset, cardFn: albumCard });
+      offset = next.offset;
+    });
   } catch (err) {
     resultsEl.innerHTML = `<p class="error">Search failed: ${escapeHtml(err.message)}</p>`;
   }
