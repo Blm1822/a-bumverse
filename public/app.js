@@ -3,6 +3,7 @@ const resultsEl = document.getElementById('results');
 const artistEl = document.getElementById('artist');
 const albumEl = document.getElementById('album');
 const decadeEl = document.getElementById('decade');
+const genreEl = document.getElementById('genre');
 const artistsPageEl = document.getElementById('artists-page');
 const recentPageEl = document.getElementById('recent-page');
 const navArtists = document.getElementById('nav-artists');
@@ -45,7 +46,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, artistsPageEl, recentPageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl];
 }
 
 function showOnly(el) {
@@ -67,6 +68,10 @@ function route() {
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
   if (parts[0] === 'decade' && parts[1]) return renderDecade(parts[1]);
+  if (parts[0] === 'genre') {
+    const g = new URLSearchParams(location.search).get('name');
+    if (g) return renderGenre(g);
+  }
   if (parts[0] === 'artists' && !parts[1]) return renderArtistsPage();
   if (parts[0] === 'recent' && !parts[1]) return renderRecentPage();
   const q = new URLSearchParams(location.search).get('q');
@@ -313,6 +318,54 @@ async function renderRecentPage() {
   });
 }
 
+async function loadGenres() {
+  const section = document.getElementById('genres-section');
+  const rail = document.getElementById('genres-rail');
+  try {
+    const res = await fetch('/api/genres');
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    rail.innerHTML = '';
+    for (const g of items) {
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'trend-pill';
+      pill.textContent = `${g.genre} (${g.n})`;
+      pill.addEventListener('click', () => navigate(`/genre?name=${encodeURIComponent(g.genre)}`));
+      rail.appendChild(pill);
+    }
+  } catch {
+    section.classList.add('hidden');
+  }
+}
+
+async function renderGenre(genre) {
+  showOnly(genreEl);
+  setTitle(genre);
+  genreEl.innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    const res = await fetch(`/api/genre?name=${encodeURIComponent(genre)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const items = data.results || [];
+    genreEl.innerHTML = `
+      <button class="back-btn" id="genre-back-btn">&larr; Back</button>
+      <h2 class="section-title">${escapeHtml(genre)}</h2>
+      ${items.length ? '<div class="grid" id="genre-grid"></div>' : '<p class="empty">No albums on file for this genre yet.</p>'}
+    `;
+    document.getElementById('genre-back-btn').addEventListener('click', () => history.back());
+    const grid = document.getElementById('genre-grid');
+    if (grid) for (const al of items) grid.appendChild(albumCard(al));
+  } catch (err) {
+    genreEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
 async function renderHomeRails() {
   try {
     const res = await fetch('/api/artists');
@@ -343,6 +396,7 @@ function renderHome() {
   loadHero();
   loadTrending();
   loadDecades();
+  loadGenres();
   renderHomeRails();
   if (!homeTimer) {
     homeTimer = setInterval(() => {
@@ -446,6 +500,7 @@ async function renderAlbum(id) {
           <h2>${escapeHtml(data.title)}</h2>
           <div class="sub">${artistLinks} · ${escapeHtml(data.type)}${data.date ? ' · ' + escapeHtml(data.date) : ''}</div>
           ${data.label ? `<div class="sub">Label: ${escapeHtml(data.label)}</div>` : ''}
+          ${(data.genres || []).length ? `<div class="genre-tags">${data.genres.map((g) => `<a href="/genre?name=${encodeURIComponent(g)}" class="genre-tag" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</a>`).join('')}</div>` : ''}
         </div>
       </div>
       <div class="table-scroll">
@@ -458,6 +513,12 @@ async function renderAlbum(id) {
       </div>
     `;
     document.getElementById('back-btn').addEventListener('click', () => history.back());
+    for (const link of albumEl.querySelectorAll('.genre-tag')) {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        navigate(link.getAttribute('href'));
+      });
+    }
     for (const link of albumEl.querySelectorAll('.artist-link')) {
       link.addEventListener('click', (e) => {
         e.preventDefault();

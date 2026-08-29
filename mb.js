@@ -98,8 +98,17 @@ export async function getArtistReleaseGroups(artistMbid) {
 // Pick a representative release for a release-group and pull its full
 // tracklist + credits (performers directly, writers via each track's work).
 export async function getAlbumDetail(rgId) {
-  const rgUrl = `${MB_ROOT}/release-group/${rgId}?inc=releases+artist-credits&fmt=json`;
+  const rgUrl = `${MB_ROOT}/release-group/${rgId}?inc=releases+artist-credits+genres&fmt=json`;
   const rg = await mbFetch(rgUrl);
+
+  // MusicBrainz genres are community-voted; count is the vote tally. Keep the
+  // handful that actually got votes, strongest first, so a release with
+  // dozens of low-signal tags doesn't dump them all onto the album page.
+  const genres = (rg.genres || [])
+    .filter((g) => g.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+    .map((g) => g.name);
 
   const releases = rg.releases || [];
   if (!releases.length) throw new Error('no releases found for this release-group');
@@ -176,6 +185,7 @@ export async function getAlbumDetail(rgId) {
       .map((a) => ({ mbid: a.artist.id, name: a.artist.name })),
     label: (release['label-info'] || []).map((l) => l.label && l.label.name).filter(Boolean).join(', '),
     coverArtUrl: `${CAA_ROOT}/release-group/${rg.id}/front-250`,
+    genres,
     tracks,
   };
 }

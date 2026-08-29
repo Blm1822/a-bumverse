@@ -68,12 +68,19 @@ CREATE TABLE IF NOT EXISTS page_views (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS album_genres (
+  album_mbid TEXT NOT NULL REFERENCES albums(mbid) ON DELETE CASCADE,
+  genre TEXT NOT NULL,
+  PRIMARY KEY (album_mbid, genre)
+);
+
 CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_credits_track ON track_credits(track_id);
 CREATE INDEX IF NOT EXISTS idx_pageviews_created ON page_views(created_at);
 CREATE INDEX IF NOT EXISTS idx_pageviews_path ON page_views(path);
+CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre);
 `);
 
 // Migration for DBs created before added_at existed.
@@ -141,6 +148,10 @@ export function upsertAlbum(detail, artistMbids) {
     db.prepare(`DELETE FROM track_credits WHERE track_id IN (${placeholders})`).run(...oldTrackIds);
     db.prepare('DELETE FROM tracks WHERE album_mbid = ?').run(detail.id);
   }
+
+  db.prepare('DELETE FROM album_genres WHERE album_mbid = ?').run(detail.id);
+  const insertGenre = db.prepare('INSERT OR IGNORE INTO album_genres (album_mbid, genre) VALUES (?, ?)');
+  for (const genre of detail.genres || []) insertGenre.run(detail.id, genre);
 
   const insertTrack = db.prepare(
     `INSERT INTO tracks (album_mbid, position, title, length_ms, recording_mbid, artist_credit)
@@ -212,6 +223,8 @@ export function getAlbumLocal(mbid) {
     )
     .all(mbid);
 
+  const genres = db.prepare('SELECT genre FROM album_genres WHERE album_mbid = ?').all(mbid).map((r) => r.genre);
+
   const tracks = db
     .prepare('SELECT id, position, title, length_ms as length, artist_credit as artist FROM tracks WHERE album_mbid = ? ORDER BY position ASC')
     .all(mbid);
@@ -230,7 +243,7 @@ export function getAlbumLocal(mbid) {
     delete track.id;
   }
 
-  return { ...album, artists, tracks };
+  return { ...album, artists, genres, tracks };
 }
 
 export function sitemapAlbums() {
@@ -464,6 +477,31 @@ export function albumsByDecade(decade, limit = 60) {
        LIMIT ?`
     )
     .all(String(decade), String(decade + 10), limit);
+}
+
+export function genreCounts(limit = 20) {
+  return db
+    .prepare(
+      `SELECT genre, COUNT(DISTINCT album_mbid) as n
+       FROM album_genres
+       GROUP BY genre
+       ORDER BY n DESC, genre ASC
+       LIMIT ?`
+    )
+    .all(limit);
+}
+
+export function albumsByGenre(genre, limit = 60) {
+  return db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+       FROM albums al
+       JOIN album_genres ag ON ag.album_mbid = al.mbid
+       WHERE ag.genre = ? COLLATE NOCASE
+       ORDER BY al.release_date ASC
+       LIMIT ?`
+    )
+    .all(genre, limit);
 }
 
 export function stats() {

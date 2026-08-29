@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage } from './db.js';
+import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 
@@ -189,6 +189,19 @@ app.get('/api/decade/:decade', (req, res) => {
   res.json({ results: albumsByDecade(decade) });
 });
 
+app.get('/api/genres', (req, res) => {
+  res.json({ results: genreCounts() });
+});
+
+// Query-string genre ("?name=") rather than a path segment - genre names can
+// contain spaces, "&", "/" (e.g. "Drum & Bass", "Folk/Americana") which would
+// otherwise collide with route/path parsing.
+app.get('/api/genre', (req, res) => {
+  const genre = (req.query.name || '').trim();
+  if (!genre) return res.status(400).json({ error: 'Not a valid genre.' });
+  res.json({ results: albumsByGenre(genre) });
+});
+
 app.get('/api/artist/:mbid', async (req, res) => {
   const { mbid } = req.params;
   if (!MBID_RE.test(mbid)) {
@@ -283,6 +296,16 @@ app.get('/decade/:decade', (req, res) => {
   res.send(renderIndexWithMeta(req, {
     title: `${decade}s`,
     description: `Albums released in the ${decade}s on Albumverse.`,
+  }));
+});
+
+app.get('/genre', (req, res) => {
+  const genre = (req.query.name || '').trim();
+  logView(req, genre || null);
+  if (!genre) return res.sendFile(indexHtmlPath);
+  res.send(renderIndexWithMeta(req, {
+    title: genre,
+    description: `${genre} albums on Albumverse.`,
   }));
 });
 
