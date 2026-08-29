@@ -17,6 +17,10 @@
 <body>
   <header class="top">
     <a class="logo-link" id="home-link" href="/"><span class="logo">Album<em>verse</em></span></a>
+    <nav class="top-nav">
+      <a href="/artists" id="nav-artists">Artists</a>
+      <a href="/recent" id="nav-recent">Recently added</a>
+    </nav>
     <form id="search-form" autocomplete="off">
       <input id="search-input" type="text" placeholder="Search for an album (e.g. Bark at the Moon)" />
       <button type="submit">Search</button>
@@ -53,6 +57,8 @@
 
     <div id="results" class="hidden"></div>
     <div id="decade" class="hidden"></div>
+    <div id="artists-page" class="hidden"></div>
+    <div id="recent-page" class="hidden"></div>
     <div id="artist" class="hidden"></div>
     <div id="album" class="hidden"></div>
   </main>

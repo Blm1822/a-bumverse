@@ -315,6 +315,51 @@ export function listArtists(limit = 200, { random = false } = {}) {
     .all(limit);
 }
 
+// Full alphabetical artist listing for the dedicated /artists browse page -
+// listArtists() above is the homepage's curated/random sample and stays as is.
+export function listArtistsPage(limit = 60, offset = 0) {
+  return db
+    .prepare(
+      `SELECT a.mbid as id, a.name, a.disambiguation, COUNT(aa.album_mbid) as albumCount,
+       COALESCE(a.wiki_image_url, (SELECT al.cover_art_url FROM albums al
+        JOIN album_artists aa2 ON aa2.album_mbid = al.mbid
+        WHERE aa2.artist_mbid = a.mbid AND al.cover_art_url IS NOT NULL
+        ORDER BY al.release_date DESC LIMIT 1)) as coverArtUrl
+       FROM artists a
+       LEFT JOIN album_artists aa ON aa.artist_mbid = a.mbid
+       GROUP BY a.mbid
+       HAVING albumCount >= 1
+       ORDER BY a.name ASC
+       LIMIT ? OFFSET ?`
+    )
+    .all(limit, offset);
+}
+
+export function countArtistsWithAlbums() {
+  return db
+    .prepare(
+      `SELECT COUNT(*) as n FROM (
+         SELECT a.mbid FROM artists a
+         JOIN album_artists aa ON aa.artist_mbid = a.mbid
+         GROUP BY a.mbid
+       )`
+    )
+    .get().n;
+}
+
+// Same shape as recentlyAdded() above but with an offset, for the dedicated
+// /recent browse page - recentlyAdded() stays as the homepage's fixed sample.
+export function recentlyAddedPage(limit = 60, offset = 0) {
+  return db
+    .prepare(
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+       FROM albums
+       ORDER BY added_at DESC, rowid DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(limit, offset);
+}
+
 export function getArtistLocal(mbid) {
   const artist = db
     .prepare(

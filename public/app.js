@@ -3,6 +3,10 @@ const resultsEl = document.getElementById('results');
 const artistEl = document.getElementById('artist');
 const albumEl = document.getElementById('album');
 const decadeEl = document.getElementById('decade');
+const artistsPageEl = document.getElementById('artists-page');
+const recentPageEl = document.getElementById('recent-page');
+const navArtists = document.getElementById('nav-artists');
+const navRecent = document.getElementById('nav-recent');
 const form = document.getElementById('search-form');
 const input = document.getElementById('search-input');
 const statsEl = document.getElementById('stats');
@@ -41,7 +45,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, artistsPageEl, recentPageEl];
 }
 
 function showOnly(el) {
@@ -58,9 +62,13 @@ function navigate(path) {
 
 function route() {
   const parts = location.pathname.split('/').filter(Boolean);
+  navArtists.classList.toggle('active', parts[0] === 'artists');
+  navRecent.classList.toggle('active', parts[0] === 'recent');
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
   if (parts[0] === 'decade' && parts[1]) return renderDecade(parts[1]);
+  if (parts[0] === 'artists' && !parts[1]) return renderArtistsPage();
+  if (parts[0] === 'recent' && !parts[1]) return renderRecentPage();
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -243,6 +251,68 @@ async function renderDecade(decade) {
   }
 }
 
+// Shared "load more" pager for the /artists and /recent browse pages: fetches
+// a page of items, appends cards to `grid`, and shows/hides the button
+// depending on whether more remain.
+async function loadPage({ url, grid, button, offset, cardFn }) {
+  button.disabled = true;
+  button.textContent = 'Loading…';
+  try {
+    const res = await fetch(`${url}?offset=${offset}`);
+    const data = await res.json();
+    const items = data.results || [];
+    for (const item of items) grid.appendChild(cardFn(item));
+    const newOffset = offset + items.length;
+    const hasMore = newOffset < (data.total || 0);
+    button.disabled = false;
+    button.textContent = 'Load more';
+    button.parentElement.classList.toggle('hidden', !hasMore);
+    return { offset: newOffset, total: data.total || 0 };
+  } catch {
+    button.disabled = false;
+    button.textContent = 'Load more';
+    return { offset, total: offset };
+  }
+}
+
+async function renderArtistsPage() {
+  showOnly(artistsPageEl);
+  setTitle('Artists');
+  artistsPageEl.innerHTML = `
+    <h2 class="section-title">Artists</h2>
+    <div class="grid" id="artists-page-grid"></div>
+    <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="artists-load-more">Load more</button></div>
+  `;
+  const grid = document.getElementById('artists-page-grid');
+  const button = document.getElementById('artists-load-more');
+  let offset = 0;
+  const first = await loadPage({ url: '/api/artists/all', grid, button, offset, cardFn: artistCard });
+  offset = first.offset;
+  button.addEventListener('click', async () => {
+    const next = await loadPage({ url: '/api/artists/all', grid, button, offset, cardFn: artistCard });
+    offset = next.offset;
+  });
+}
+
+async function renderRecentPage() {
+  showOnly(recentPageEl);
+  setTitle('Recently added');
+  recentPageEl.innerHTML = `
+    <h2 class="section-title">Recently added</h2>
+    <div class="grid" id="recent-page-grid"></div>
+    <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="recent-load-more">Load more</button></div>
+  `;
+  const grid = document.getElementById('recent-page-grid');
+  const button = document.getElementById('recent-load-more');
+  let offset = 0;
+  const first = await loadPage({ url: '/api/recent/all', grid, button, offset, cardFn: albumCard });
+  offset = first.offset;
+  button.addEventListener('click', async () => {
+    const next = await loadPage({ url: '/api/recent/all', grid, button, offset, cardFn: albumCard });
+    offset = next.offset;
+  });
+}
+
 async function renderHomeRails() {
   try {
     const res = await fetch('/api/artists');
@@ -410,6 +480,13 @@ homeLink.addEventListener('click', (e) => {
   e.preventDefault();
   navigate('/');
 });
+
+for (const link of [navArtists, navRecent]) {
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    navigate(link.getAttribute('href'));
+  });
+}
 
 route();
 

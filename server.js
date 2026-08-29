@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade } from './db.js';
+import { searchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 
@@ -160,6 +160,22 @@ app.get('/api/trending', (req, res) => {
   res.json({ results: trendingSearches(10) });
 });
 
+const PAGE_SIZE = 60;
+function pageParams(req) {
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  return { limit: PAGE_SIZE, offset };
+}
+
+app.get('/api/artists/all', (req, res) => {
+  const { limit, offset } = pageParams(req);
+  res.json({ results: listArtistsPage(limit, offset), total: countArtistsWithAlbums() });
+});
+
+app.get('/api/recent/all', (req, res) => {
+  const { limit, offset } = pageParams(req);
+  res.json({ results: recentlyAddedPage(limit, offset), total: stats().albums });
+});
+
 app.get('/api/decades', (req, res) => {
   res.json({ results: decadeCounts() });
 });
@@ -242,6 +258,22 @@ app.get('/artist/:mbid', (req, res) => {
   if (!artist) return res.sendFile(indexHtmlPath);
   const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
   res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl }));
+});
+
+app.get('/artists', (req, res) => {
+  logView(req, null);
+  res.send(renderIndexWithMeta(req, {
+    title: 'Artists',
+    description: 'Browse every artist in the Albumverse database.',
+  }));
+});
+
+app.get('/recent', (req, res) => {
+  logView(req, null);
+  res.send(renderIndexWithMeta(req, {
+    title: 'Recently added',
+    description: 'The latest albums added to Albumverse.',
+  }));
 });
 
 app.get('/decade/:decade', (req, res) => {
