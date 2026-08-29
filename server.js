@@ -4,8 +4,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
+import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -148,6 +149,8 @@ app.get('/api/album/:mbid', async (req, res) => {
       artistMbids.push(credit.mbid);
     }
     upsertAlbum(detail, artistMbids);
+    const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
+    if (discogsCredits.length) setAlbumCredits(mbid, discogsCredits);
     res.json(getAlbumLocal(mbid));
   } catch (err) {
     console.error('live album lookup failed', mbid, err.message);

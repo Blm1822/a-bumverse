@@ -9,8 +9,9 @@
 //   node scripts/import.js "Ozzy Osbourne" --types Album,EP,Single
 
 import fs from 'node:fs';
-import { upsertArtist, upsertAlbum, albumExists, stats } from '../db.js';
+import { upsertArtist, upsertAlbum, setAlbumCredits, albumExists, stats } from '../db.js';
 import { searchArtist, getArtistReleaseGroups, getAlbumDetail } from '../mb.js';
+import { findDiscogsCredits } from '../discogs.js';
 
 const EXCLUDED_SECONDARY_TYPES = new Set([
   'Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street',
@@ -44,8 +45,10 @@ async function importArtist(name, { includeAll, types }) {
     try {
       const detail = await getAlbumDetail(rg.id);
       upsertAlbum(detail, [artist.mbid]);
+      const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
+      if (discogsCredits.length) setAlbumCredits(detail.id, discogsCredits);
       added++;
-      console.log(`  + ${detail.title} (${detail.date || 'n/a'}) - ${detail.tracks.length} tracks`);
+      console.log(`  + ${detail.title} (${detail.date || 'n/a'}) - ${detail.tracks.length} tracks${discogsCredits.length ? `, ${discogsCredits.length} Discogs credits` : ''}`);
     } catch (err) {
       failed++;
       console.log(`  ! failed: ${rg.title} - ${err.message}`);

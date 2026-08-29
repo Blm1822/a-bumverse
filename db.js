@@ -74,6 +74,19 @@ CREATE TABLE IF NOT EXISTS album_genres (
   PRIMARY KEY (album_mbid, genre)
 );
 
+-- Supplementary album-level credits from Discogs (producer, engineer, session
+-- musicians, ...) - MusicBrainz's own performer credits are much less
+-- consistently filled in (see README), so this is an optional second source
+-- shown separately on the album page rather than merged into track_credits,
+-- since Discogs' extraartists are album-wide, not tied to a specific track.
+CREATE TABLE IF NOT EXISTS album_credits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  album_mbid TEXT NOT NULL REFERENCES albums(mbid) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'discogs'
+);
+
 -- Persisted MusicBrainz response cache. This used to be an in-memory Map in
 -- mb.js, which meant every restart (every deploy, per the comment on
 -- launchSeedImports below) threw the whole thing away and re-hammered
@@ -93,6 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_pageviews_created ON page_views(created_at);
 CREATE INDEX IF NOT EXISTS idx_pageviews_path ON page_views(path);
 CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre);
 CREATE INDEX IF NOT EXISTS idx_mb_cache_expires ON mb_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_album_credits_album ON album_credits(album_mbid);
 `);
 
 // Migration for DBs created before added_at existed.
@@ -221,6 +235,18 @@ export function upsertAlbum(detail, artistMbids) {
   }
 }
 
+// Idempotent like the track/genre wipe-and-reinsert above: safe to call again
+// on a re-import or a repeat live lookup without accumulating duplicates.
+export function setAlbumCredits(albumMbid, credits) {
+  db.prepare('DELETE FROM album_credits WHERE album_mbid = ?').run(albumMbid);
+  const insert = db.prepare('INSERT INTO album_credits (album_mbid, name, role, source) VALUES (?, ?, ?, ?)');
+  for (const c of credits) insert.run(albumMbid, c.name, c.role, c.source || 'discogs');
+}
+
+export function getAlbumCredits(albumMbid) {
+  return db.prepare('SELECT name, role, source FROM album_credits WHERE album_mbid = ? ORDER BY id ASC').all(albumMbid);
+}
+
 export function searchLocal(query, limit = 24, offset = 0) {
   const like = `%${query}%`;
   return db
@@ -273,6 +299,7 @@ export function getAlbumLocal(mbid) {
     .all(mbid);
 
   const genres = db.prepare('SELECT genre FROM album_genres WHERE album_mbid = ?').all(mbid).map((r) => r.genre);
+  const credits = getAlbumCredits(mbid);
 
   const tracks = db
     .prepare('SELECT id, position, title, length_ms as length, artist_credit as artist FROM tracks WHERE album_mbid = ? ORDER BY position ASC')
@@ -292,7 +319,7 @@ export function getAlbumLocal(mbid) {
     delete track.id;
   }
 
-  return { ...album, artists, genres, tracks };
+  return { ...album, artists, genres, credits, tracks };
 }
 
 export function sitemapAlbums() {

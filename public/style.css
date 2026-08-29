@@ -255,6 +255,9 @@ table.tracks th, table.tracks td {
 table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
 .credit-tag { display: inline-block; background: #1f2330; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
 .credit-tag .role { color: var(--muted); }
+.credits-title { margin-top: 24px; display: flex; align-items: baseline; gap: 8px; }
+.credits-source { text-transform: none; letter-spacing: normal; font-size: 11px; color: var(--muted); font-weight: 400; }
+.credits-wrap { margin-top: 4px; }
 .empty { color: var(--muted); font-style: italic; }
 .loading { color: var(--muted); padding: 40px 0; text-align: center; }
 .error { color: #ff6b6b; }

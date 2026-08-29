@@ -526,6 +526,10 @@ async function renderAlbum(id) {
           <tbody>${rows}</tbody>
         </table>
       </div>
+      ${(data.credits || []).length ? `
+        <h2 class="section-title credits-title">Additional credits <span class="credits-source">via Discogs</span></h2>
+        <div class="credits-wrap">${creditTags(data.credits)}</div>
+      ` : ''}
     `;
     document.getElementById('back-btn').addEventListener('click', () => history.back());
     for (const link of albumEl.querySelectorAll('.genre-tag')) {
