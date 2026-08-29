@@ -1,0 +1,182 @@
+# Albumverse seed list, round 3: genres round 1/2 barely touched -
+# grunge/alt-rock, indie, modern hip-hop/pop/R&B, EDM, K-pop, Latin,
+# punk/new wave, plus more metal/prog/world/singer-songwriter.
+# Runs alongside artists.txt and artists_expansion.txt already in progress.
+
+# Grunge / 90s Alternative
+Nirvana
+Pearl Jam
+Soundgarden
+Alice in Chains
+Stone Temple Pilots
+R.E.M.
+Radiohead
+Red Hot Chili Peppers
+Foo Fighters
+Smashing Pumpkins
+Weezer
+Beck
+Nine Inch Nails
+Rage Against the Machine
+Live
+Oasis
+Blur
+The Cure
+Depeche Mode
+U2
+Coldplay
+
+# Indie / Alt (2000s-2010s)
+Arctic Monkeys
+The Strokes
+Vampire Weekend
+Arcade Fire
+The White Stripes
+Modest Mouse
+Death Cab for Cutie
+Bon Iver
+The National
+Tame Impala
+MGMT
+Florence and the Machine
+Wilco
+
+# Hip-Hop (expansion)
+Kendrick Lamar
+Kanye West
+Drake
+Nas
+Wu-Tang Clan
+OutKast
+A Tribe Called Quest
+Snoop Dogg
+Dr. Dre
+Ice Cube
+Lil Wayne
+Missy Elliott
+Lauryn Hill
+Kid Cudi
+Travis Scott
+J. Cole
+Nicki Minaj
+Cardi B
+
+# Pop / R&B (2000s-2020s)
+Beyonce
+Rihanna
+Adele
+Taylor Swift
+Lady Gaga
+Justin Timberlake
+Usher
+Alicia Keys
+Amy Winehouse
+Bruno Mars
+Ariana Grande
+Billie Eilish
+The Weeknd
+Frank Ocean
+SZA
+Sam Smith
+Ed Sheeran
+Katy Perry
+Britney Spears
+Christina Aguilera
+NSYNC
+Backstreet Boys
+Destiny's Child
+TLC
+Mariah Carey
+
+# Electronic / Dance
+Avicii
+Calvin Harris
+Deadmau5
+Skrillex
+David Guetta
+Swedish House Mafia
+The Prodigy
+Fatboy Slim
+Moby
+
+# K-pop
+BTS
+Blackpink
+Twice
+Exo
+
+# Latin / Reggaeton
+Bad Bunny
+J Balvin
+Shakira
+Selena
+Ricky Martin
+Marc Anthony
+Celia Cruz
+Buena Vista Social Club
+
+# Punk / Post-Punk / New Wave
+Joy Division
+Talking Heads
+Blondie
+Devo
+The Smiths
+Siouxsie and the Banshees
+Dead Kennedys
+Bad Religion
+Black Flag
+Descendents
+Green Day
+Blink-182
+NOFX
+Rancid
+The Offspring
+Sum 41
+
+# Metal (expansion)
+Black Sabbath
+System of a Down
+Tool
+Korn
+Slipknot
+Disturbed
+Deftones
+Linkin Park
+Avenged Sevenfold
+Mastodon
+Opeth
+Meshuggah
+Ghost
+Behemoth
+Sepultura
+
+# Prog Rock (expansion)
+King Crimson
+Genesis
+Emerson, Lake and Palmer
+Camel
+Gentle Giant
+
+# World / Folk
+Ravi Shankar
+Fela Kuti
+Youssou N'Dour
+Cesaria Evora
+Manu Chao
+
+# Singer-Songwriter
+Neil Young
+James Taylor
+Carole King
+Cat Stevens
+Leonard Cohen
+Tracy Chapman
+Jeff Buckley
+Nick Drake
+
+# Vocal Standards / Big Band
+Frank Sinatra
+Dean Martin
+Nat King Cole
+Tony Bennett
+Barbra Streisand

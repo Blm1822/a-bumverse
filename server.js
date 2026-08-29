@@ -28,7 +28,7 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // rest of MusicBrainz's budget for actual traffic.
 function launchSeedImports() {
   if (!process.env.DATA_DIR) return;
-  const files = ['artists.txt', 'artists_expansion.txt'];
+  const files = ['artists.txt', 'artists_expansion.txt', 'artists_expansion_2.txt'];
 
   function runNext(i) {
     if (i >= files.length) return;
