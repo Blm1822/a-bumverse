@@ -47,6 +47,15 @@ npm run import -- --file artists_expansion.txt
 npm run import -- --file artists_expansion_2.txt
 ```
 
+**Classical composers are a trap.** MusicBrainz treats every orchestra's
+every recording of the same work as its own release-group, so a single
+composer can match *thousands* (Bach alone: ~5,000). The importer caps new
+additions per artist per run at 40 by default (`--max-per-artist N` to
+change it) specifically so one outlier composer can't eat an entire run's
+time budget before it ever reaches the next artist in the file. Already-saved
+albums don't count against the cap, so re-running the same file later keeps
+adding more, N at a time.
+
 **Budget real time for this.** MusicBrainz paces every request to ~1
 req/1.3s, and a single album needs several requests (release detail, plus
 one per track that has separate writer-credit data) — a typical artist with
