@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredAlbum, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -26,18 +26,31 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // visitor searches were getting starved (observed 90s+ hangs on first-time
 // album lookups while both were running). One background stream leaves the
 // rest of MusicBrainz's budget for actual traffic.
+//
+// Once every seed file is caught up (fast on a warm library, since the
+// import script skips albums already saved), the last step in the chain is
+// scripts/backfill.js - it retroactively fetches genre/Discogs data for
+// albums saved before that enrichment existed. On a large library this can
+// run for a very long time (same order of magnitude as the initial import),
+// which is fine: it's one background stream, still never in parallel with
+// the seed imports above, and it just resumes wherever it left off on the
+// next deploy restart.
 function launchSeedImports() {
   if (!process.env.DATA_DIR) return;
   const files = ['artists.txt', 'artists_expansion.txt', 'artists_expansion_2.txt'];
 
+  function runScript(args, onExit) {
+    const child = spawn('node', args, { cwd: __dirname, stdio: 'inherit' });
+    child.on('error', (err) => console.error(`background job (${args.join(' ')}) failed to start:`, err.message));
+    child.on('exit', onExit);
+  }
+
   function runNext(i) {
-    if (i >= files.length) return;
-    const child = spawn('node', ['scripts/import.js', '--file', files[i]], {
-      cwd: __dirname,
-      stdio: 'inherit',
-    });
-    child.on('error', (err) => console.error(`seed import (${files[i]}) failed to start:`, err.message));
-    child.on('exit', () => runNext(i + 1));
+    if (i >= files.length) {
+      runScript(['scripts/backfill.js'], () => {});
+      return;
+    }
+    runScript(['scripts/import.js', '--file', files[i]], () => runNext(i + 1));
   }
 
   runNext(0);
@@ -151,6 +164,7 @@ app.get('/api/album/:mbid', async (req, res) => {
     upsertAlbum(detail, artistMbids);
     const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
     if (discogsCredits.length) setAlbumCredits(mbid, discogsCredits);
+    markEnriched(mbid);
     res.json(getAlbumLocal(mbid));
   } catch (err) {
     console.error('live album lookup failed', mbid, err.message);

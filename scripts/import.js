@@ -19,7 +19,7 @@
 // cap, so re-running the same file later keeps adding up to N more.
 
 import fs from 'node:fs';
-import { upsertArtist, upsertAlbum, setAlbumCredits, albumExists, stats } from '../db.js';
+import { upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, albumExists, stats } from '../db.js';
 import { searchArtist, getArtistReleaseGroups, getAlbumDetail } from '../mb.js';
 import { findDiscogsCredits } from '../discogs.js';
 
@@ -64,6 +64,7 @@ async function importArtist(name, { includeAll, types, maxPerArtist }) {
       upsertAlbum(detail, [artist.mbid]);
       const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
       if (discogsCredits.length) setAlbumCredits(detail.id, discogsCredits);
+      markEnriched(detail.id);
       added++;
       console.log(`  + ${detail.title} (${detail.date || 'n/a'}) - ${detail.tracks.length} tracks${discogsCredits.length ? `, ${discogsCredits.length} Discogs credits` : ''}`);
     } catch (err) {

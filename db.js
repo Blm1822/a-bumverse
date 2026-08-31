@@ -122,6 +122,15 @@ for (const col of ['bio', 'wiki_image_url', 'wiki_url']) {
   if (!artistColumns.includes(col)) db.exec(`ALTER TABLE artists ADD COLUMN ${col} TEXT;`);
 }
 
+// Migration for DBs created before genre/Discogs enrichment existed. NULL
+// means "imported before enrichment existed, or enrichment not yet run on
+// it" - the backfill script (scripts/backfill.js) works through these.
+// Deliberately not re-added to `albumColumns` above/reused here since this
+// runs after that block executes.
+if (!db.prepare('PRAGMA table_info(albums)').all().map((c) => c.name).includes('enriched_at')) {
+  db.exec('ALTER TABLE albums ADD COLUMN enriched_at TEXT;');
+}
+
 // One-time (per boot, cheap no-op once caught up) backfill: give every writer/
 // performer credited with a MusicBrainz id their own stub artist row, even for
 // albums imported before clickable credits existed, so old and new data both
@@ -245,6 +254,35 @@ export function setAlbumCredits(albumMbid, credits) {
 
 export function getAlbumCredits(albumMbid) {
   return db.prepare('SELECT name, role, source FROM album_credits WHERE album_mbid = ? ORDER BY id ASC').all(albumMbid);
+}
+
+export function markEnriched(mbid) {
+  db.prepare("UPDATE albums SET enriched_at = datetime('now') WHERE mbid = ?").run(mbid);
+}
+
+export function getAlbumArtistMbids(mbid) {
+  return db.prepare('SELECT artist_mbid FROM album_artists WHERE album_mbid = ?').all(mbid).map((r) => r.artist_mbid);
+}
+
+// Albums imported before genre/Discogs enrichment existed (or not yet
+// reached by the backfill), most-viewed first so the backfill's limited
+// throughput goes toward what visitors are actually looking at rather than
+// working through 14k+ albums in arbitrary order.
+export function albumsNeedingEnrichment(limit = 50) {
+  return db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.artist_credit as artist,
+       (SELECT COUNT(*) FROM page_views pv WHERE pv.path = '/album/' || al.mbid) as views
+       FROM albums al
+       WHERE al.enriched_at IS NULL
+       ORDER BY views DESC, al.added_at DESC
+       LIMIT ?`
+    )
+    .all(limit);
+}
+
+export function countAlbumsNeedingEnrichment() {
+  return db.prepare('SELECT COUNT(*) as n FROM albums WHERE enriched_at IS NULL').get().n;
 }
 
 export function searchLocal(query, limit = 24, offset = 0) {
