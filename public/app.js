@@ -249,19 +249,33 @@ async function renderDecade(decade) {
   showOnly(decadeEl);
   setTitle(`${decade}s`);
   decadeEl.innerHTML = '<div class="loading">Loading…</div>';
+  const decadeUrl = `/api/decade/${decade}`;
   try {
-    const res = await fetch(`/api/decade/${decade}`);
+    const res = await fetch(decadeUrl);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const items = data.results || [];
     decadeEl.innerHTML = `
       <button class="back-btn" id="decade-back-btn">&larr; Back</button>
-      <h2 class="section-title">${escapeHtml(decade)}s</h2>
-      ${items.length ? '<div class="grid" id="decade-grid"></div>' : '<p class="empty">No albums on file for this decade yet.</p>'}
+      <h2 class="section-title">${escapeHtml(decade)}s <span class="credits-source">A&ndash;Z by title</span></h2>
+      ${items.length ? `
+        <div class="grid" id="decade-grid"></div>
+        <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="decade-load-more">Load more</button></div>
+      ` : '<p class="empty">No albums on file for this decade yet.</p>'}
     `;
     document.getElementById('decade-back-btn').addEventListener('click', () => history.back());
     const grid = document.getElementById('decade-grid');
-    if (grid) for (const al of items) grid.appendChild(albumCard(al));
+    if (!grid) return;
+    for (const al of items) grid.appendChild(albumCard(al));
+
+    let offset = items.length;
+    const total = data.total || 0;
+    const button = document.getElementById('decade-load-more');
+    button.parentElement.classList.toggle('hidden', offset >= total);
+    button.addEventListener('click', async () => {
+      const next = await loadPage({ url: decadeUrl, grid, button, offset, cardFn: albumCard });
+      offset = next.offset;
+    });
   } catch (err) {
     decadeEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
   }

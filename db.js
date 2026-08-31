@@ -543,16 +543,22 @@ export function decadeCounts() {
     .all();
 }
 
-export function albumsByDecade(decade, limit = 60) {
+export function albumsByDecade(decade, limit = 60, offset = 0) {
   return db
     .prepare(
       `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
        FROM albums
        WHERE release_date >= ? AND release_date < ?
-       ORDER BY release_date ASC
-       LIMIT ?`
+       ORDER BY title COLLATE NOCASE ASC
+       LIMIT ? OFFSET ?`
     )
-    .all(String(decade), String(decade + 10), limit);
+    .all(String(decade), String(decade + 10), limit, offset);
+}
+
+export function countAlbumsByDecade(decade) {
+  return db
+    .prepare('SELECT COUNT(*) as n FROM albums WHERE release_date >= ? AND release_date < ?')
+    .get(String(decade), String(decade + 10)).n;
 }
 
 export function genreCounts(limit = 20) {
