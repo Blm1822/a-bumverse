@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS page_views (
   query TEXT,
   referrer TEXT,
   user_agent TEXT,
+  is_bot INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -120,6 +121,37 @@ if (!albumColumns.includes('added_at')) {
 const artistColumns = db.prepare('PRAGMA table_info(artists)').all().map((c) => c.name);
 for (const col of ['bio', 'wiki_image_url', 'wiki_url']) {
   if (!artistColumns.includes(col)) db.exec(`ALTER TABLE artists ADD COLUMN ${col} TEXT;`);
+}
+
+// Search engines, social-share unfurlers, SEO crawlers, and scripts - "bot"
+// is a deliberately broad, case-insensitive net since this only powers
+// analytics/popularity signals, not any access control. No user-agent at
+// all is unusual for a real browser (default curl/wget/most scripts either
+// send none or an obviously non-browser one), so treat that as bot too.
+const BOT_UA_RE = /bot|crawl|spider|slurp|facebookexternalhit|whatsapp|telegrambot|discordbot|headless|python-requests|scrapy|ahrefs|semrush|mj12bot|dotbot|petalbot|bytespider|ia_archiver|curl\/|wget\/|go-http-client|node-fetch|axios\//i;
+function isBotUserAgent(ua) {
+  return !ua || BOT_UA_RE.test(ua);
+}
+
+// Migration for DBs created before bot-traffic detection existed. Existing
+// rows already have their user_agent stored, so retroactively classify them
+// with the same logic new rows get, rather than leaving months of history
+// stuck assuming every past view was human just because this didn't exist
+// yet when they were logged.
+if (!db.prepare('PRAGMA table_info(page_views)').all().map((c) => c.name).includes('is_bot')) {
+  db.exec('ALTER TABLE page_views ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0;');
+  db.exec('BEGIN');
+  try {
+    const rows = db.prepare('SELECT id, user_agent FROM page_views').all();
+    const markBot = db.prepare('UPDATE page_views SET is_bot = 1 WHERE id = ?');
+    for (const r of rows) {
+      if (isBotUserAgent(r.user_agent)) markBot.run(r.id);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 // Migration for DBs created before genre/Discogs enrichment existed. NULL
@@ -272,7 +304,7 @@ export function albumsNeedingEnrichment(limit = 50) {
   return db
     .prepare(
       `SELECT al.mbid as id, al.title, al.artist_credit as artist,
-       (SELECT COUNT(*) FROM page_views pv WHERE pv.path = '/album/' || al.mbid) as views
+       (SELECT COUNT(*) FROM page_views pv WHERE pv.path = '/album/' || al.mbid AND pv.is_bot = 0) as views
        FROM albums al
        WHERE al.enriched_at IS NULL
        ORDER BY views DESC, al.added_at DESC
@@ -369,20 +401,28 @@ export function sitemapArtists() {
 }
 
 export function logPageView({ path: p, query, referrer, userAgent }) {
-  db.prepare('INSERT INTO page_views (path, query, referrer, user_agent) VALUES (?, ?, ?, ?)').run(
-    p, query || null, referrer || null, userAgent || null
+  db.prepare('INSERT INTO page_views (path, query, referrer, user_agent, is_bot) VALUES (?, ?, ?, ?, ?)').run(
+    p, query || null, referrer || null, userAgent || null, isBotUserAgent(userAgent) ? 1 : 0
   );
 }
 
 export function analyticsSummary() {
-  const totalViews = db.prepare('SELECT COUNT(*) as n FROM page_views').get().n;
-  const today = db.prepare("SELECT COUNT(*) as n FROM page_views WHERE created_at >= datetime('now', 'start of day')").get().n;
-  const last7d = db.prepare("SELECT COUNT(*) as n FROM page_views WHERE created_at >= datetime('now', '-7 days')").get().n;
+  // Primary numbers are human-only (is_bot = 0) - bot crawl volume is real
+  // traffic in the server-load sense but tells you nothing about visitor
+  // interest, which is what this dashboard exists to answer. Bot counts are
+  // still surfaced separately below so crawl activity (a genuinely useful
+  // SEO signal - it means search engines are indexing the site) isn't lost.
+  const totalViews = db.prepare('SELECT COUNT(*) as n FROM page_views WHERE is_bot = 0').get().n;
+  const today = db.prepare("SELECT COUNT(*) as n FROM page_views WHERE is_bot = 0 AND created_at >= datetime('now', 'start of day')").get().n;
+  const last7d = db.prepare("SELECT COUNT(*) as n FROM page_views WHERE is_bot = 0 AND created_at >= datetime('now', '-7 days')").get().n;
+
+  const botViewsLast7d = db.prepare("SELECT COUNT(*) as n FROM page_views WHERE is_bot = 1 AND created_at >= datetime('now', '-7 days')").get().n;
+  const botViewsTotal = db.prepare('SELECT COUNT(*) as n FROM page_views WHERE is_bot = 1').get().n;
 
   const dailyCounts = db
     .prepare(
       `SELECT substr(created_at, 1, 10) as day, COUNT(*) as n
-       FROM page_views WHERE created_at >= datetime('now', '-14 days')
+       FROM page_views WHERE is_bot = 0 AND created_at >= datetime('now', '-14 days')
        GROUP BY day ORDER BY day ASC`
     )
     .all();
@@ -393,7 +433,7 @@ export function analyticsSummary() {
        FROM page_views pv
        LEFT JOIN albums al ON pv.path = '/album/' || al.mbid
        LEFT JOIN artists ar ON pv.path = '/artist/' || ar.mbid
-       WHERE pv.path LIKE '/album/%' OR pv.path LIKE '/artist/%'
+       WHERE pv.is_bot = 0 AND (pv.path LIKE '/album/%' OR pv.path LIKE '/artist/%')
        GROUP BY pv.path ORDER BY n DESC LIMIT 15`
     )
     .all();
@@ -401,7 +441,7 @@ export function analyticsSummary() {
   const topSearches = db
     .prepare(
       `SELECT query, COUNT(*) as n FROM page_views
-       WHERE path = '/search' AND query IS NOT NULL AND query != ''
+       WHERE is_bot = 0 AND path = '/search' AND query IS NOT NULL AND query != ''
        GROUP BY query ORDER BY n DESC LIMIT 15`
     )
     .all();
@@ -409,12 +449,12 @@ export function analyticsSummary() {
   const topReferrers = db
     .prepare(
       `SELECT referrer, COUNT(*) as n FROM page_views
-       WHERE referrer IS NOT NULL AND referrer != ''
+       WHERE is_bot = 0 AND referrer IS NOT NULL AND referrer != ''
        GROUP BY referrer ORDER BY n DESC LIMIT 10`
     )
     .all();
 
-  return { totalViews, today, last7d, dailyCounts, topPages, topSearches, topReferrers };
+  return { totalViews, today, last7d, botViewsLast7d, botViewsTotal, dailyCounts, topPages, topSearches, topReferrers };
 }
 
 // random: true gives a fresh random sample each call instead of a fixed
@@ -538,7 +578,7 @@ export function featuredAlbum() {
       `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
        FROM page_views pv
        JOIN albums al ON pv.path = '/album/' || al.mbid
-       WHERE pv.created_at >= datetime('now', '-7 days')
+       WHERE pv.is_bot = 0 AND pv.created_at >= datetime('now', '-7 days')
        GROUP BY al.mbid
        ORDER BY COUNT(pv.id) DESC
        LIMIT 1`
@@ -560,7 +600,7 @@ export function trendingSearches(limit = 8) {
   return db
     .prepare(
       `SELECT query, COUNT(*) as n FROM page_views
-       WHERE path = '/search' AND query IS NOT NULL AND query != ''
+       WHERE is_bot = 0 AND path = '/search' AND query IS NOT NULL AND query != ''
          AND created_at >= datetime('now', '-7 days')
        GROUP BY query ORDER BY n DESC LIMIT ?`
     )

@@ -447,6 +447,11 @@ app.get('/analytics', (req, res) => {
       <div class="stat"><div class="n">${s.totalViews}</div><div class="l">views all-time</div></div>
       <div class="stat"><div class="n">${dbStats.albums.toLocaleString()}</div><div class="l">albums in db</div></div>
     </div>
+    <p style="color: #6b6584; font-size: 12px; margin-top: 10px;">
+      All numbers above are human traffic only (bots/crawlers filtered out by user-agent).
+      Separately: ${s.botViewsLast7d} bot views in the last 7 days, ${s.botViewsTotal} all-time
+      &mdash; that's mostly search engines indexing the site, which is a good sign, not a problem.
+    </p>
     <h2>Daily views (last 14 days)</h2>
     <table>${s.dailyCounts.map((d) => row(d.day, d.n)).join('')}</table>
     <h2>Top albums / artists</h2>
