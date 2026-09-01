@@ -1,6 +1,7 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -423,9 +424,33 @@ app.get('/sitemap.xml', (req, res) => {
   res.type('application/xml').send(xml);
 });
 
+// Fixed-length digest comparison so a wrong guess can't be timed byte-by-byte
+// - crypto.timingSafeEqual itself requires equal-length buffers, which a raw
+// header string comparison wouldn't guarantee.
+function safeEqual(a, b) {
+  const bufA = crypto.createHash('sha256').update(a).digest();
+  const bufB = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+// Gated by ANALYTICS_PASSWORD so this is opt-in rather than breaking local
+// dev (where it's typically unset) - but it MUST be set in production, since
+// this page has no other protection and shows real traffic/search data.
+function requireAnalyticsAuth(req, res, next) {
+  const password = process.env.ANALYTICS_PASSWORD;
+  if (!password) return next();
+
+  const expected = 'Basic ' + Buffer.from(`admin:${password}`).toString('base64');
+  const auth = req.headers.authorization;
+  if (auth && safeEqual(auth, expected)) return next();
+
+  res.set('WWW-Authenticate', 'Basic realm="Albumverse Analytics"');
+  res.status(401).send('Authentication required.');
+}
+
 // Internal-only traffic dashboard. Not linked from the site nav, not part of
 // the SPA - a plain server-rendered page since this is a tool for us, not visitors.
-app.get('/analytics', (req, res) => {
+app.get('/analytics', requireAnalyticsAuth, (req, res) => {
   const s = analyticsSummary();
   const dbStats = stats();
   const row = (label, n) => `<tr><td>${escapeAttr(label)}</td><td>${n}</td></tr>`;
