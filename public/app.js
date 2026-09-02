@@ -47,6 +47,36 @@ function ticketsLink(artistName) {
   return `https://seatgeek.com/search?search=${encodeURIComponent(artistName)}`;
 }
 
+// Shared by album/artist pages. Scoped to a class + container query (not a
+// global id) since a hidden previously-rendered page's old DOM can still be
+// sitting around (showOnly() hides views, it doesn't remove their content),
+// and a bare getElementById could silently grab the wrong page's button.
+function shareLinksHtml(shareText) {
+  const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(window.location.href)}`;
+  return `
+    <div class="share-links">
+      <a href="${tweetUrl}" class="share-link" target="_blank" rel="noopener">Share on X</a>
+      <button type="button" class="share-link copy-link-btn">Copy link</button>
+    </div>
+  `;
+}
+
+function wireShareLinks(container) {
+  const btn = container.querySelector('.copy-link-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch {
+      // Clipboard API unavailable (unusual, but non-fatal) - link is still
+      // shareable manually from the address bar either way.
+    }
+  });
+}
+
 function fmtLength(ms) {
   if (!ms) return '';
   const totalSec = Math.round(ms / 1000);
@@ -507,6 +537,7 @@ async function renderArtist(id) {
             <a class="tickets-link" href="${ticketsLink(data.name)}" target="_blank" rel="noopener sponsored">Find ${escapeHtml(data.name)} tickets &rarr;</a>
             <a class="merch-link" href="${merchLink(data.name, config.amazonAssociateTag)}" target="_blank" rel="noopener sponsored">Shop ${escapeHtml(data.name)} merch &rarr;</a>
           </div>
+          ${shareLinksHtml(`${data.name} — on Albumverse`)}
         </div>
       </div>
       ${(data.albums || []).length ? `
@@ -528,6 +559,7 @@ async function renderArtist(id) {
     if (grid) for (const al of data.albums || []) grid.appendChild(albumCard(al));
     const appearGrid = document.getElementById('artist-appearances-grid');
     if (appearGrid) for (const al of data.appearances || []) appearGrid.appendChild(albumCard(al));
+    wireShareLinks(artistEl);
     loadSimilarArtists(data.id);
   } catch (err) {
     artistEl.innerHTML = `<p class="error">Failed to load artist: ${escapeHtml(err.message)}</p>`;
@@ -588,6 +620,7 @@ async function renderAlbum(id) {
           <div class="listen-links">
             ${listenLinks(data.artist, data.title).map((l) => `<a href="${l.url}" class="listen-link" target="_blank" rel="noopener">Listen on ${l.name} &rarr;</a>`).join('')}
           </div>
+          ${shareLinksHtml(`${data.title} by ${data.artist} — on Albumverse`)}
         </div>
       </div>
       <div class="table-scroll">
@@ -620,6 +653,7 @@ async function renderAlbum(id) {
         navigate(link.getAttribute('href'));
       });
     }
+    wireShareLinks(albumEl);
     loadSimilarAlbums(data.id);
   } catch (err) {
     albumEl.innerHTML = `<p class="error">Failed to load album: ${escapeHtml(err.message)}</p>`;
