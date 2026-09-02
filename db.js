@@ -674,6 +674,28 @@ export function genreCounts(limit = 20) {
     .all(limit);
 }
 
+// Other albums sharing at least one genre with this one, most-shared-genres
+// first (a random tiebreak among equally-relevant matches, so the same few
+// albums don't always win the top slots). Empty genres list (album not yet
+// enriched) returns [] rather than erroring, matching how every other
+// optional-data section on the album page degrades.
+export function similarAlbums(albumMbid, genres, limit = 12) {
+  if (!genres || !genres.length) return [];
+  const placeholders = genres.map(() => '?').join(',');
+  return db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl,
+       COUNT(DISTINCT ag.genre) as sharedGenres
+       FROM albums al
+       JOIN album_genres ag ON ag.album_mbid = al.mbid
+       WHERE ag.genre IN (${placeholders}) AND al.mbid != ?
+       GROUP BY al.mbid
+       ORDER BY sharedGenres DESC, RANDOM()
+       LIMIT ?`
+    )
+    .all(...genres, albumMbid, limit);
+}
+
 export function albumsByGenre(genre, limit = 60) {
   return db
     .prepare(

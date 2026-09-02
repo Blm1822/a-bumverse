@@ -556,6 +556,10 @@ async function renderAlbum(id) {
         <h2 class="section-title credits-title">Additional credits <span class="credits-source">via Discogs</span></h2>
         <div class="credits-wrap">${creditTags(data.credits)}</div>
       ` : ''}
+      <div id="similar-albums-section" class="hidden">
+        <h2 class="section-title">Similar albums</h2>
+        <div class="grid" id="similar-albums-grid"></div>
+      </div>
     `;
     document.getElementById('back-btn').addEventListener('click', () => history.back());
     for (const link of albumEl.querySelectorAll('.genre-tag')) {
@@ -570,8 +574,28 @@ async function renderAlbum(id) {
         navigate(link.getAttribute('href'));
       });
     }
+    loadSimilarAlbums(data.id);
   } catch (err) {
     albumEl.innerHTML = `<p class="error">Failed to load album: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// Loaded separately from the main album fetch (not baked into
+// getAlbumLocal's response) since the SSR route also calls getAlbumLocal
+// just to build meta tags/JSON-LD and has no use for this.
+async function loadSimilarAlbums(id) {
+  const section = document.getElementById('similar-albums-section');
+  const grid = document.getElementById('similar-albums-grid');
+  if (!section || !grid) return;
+  try {
+    const res = await fetch(`/api/album/${id}/similar`);
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) return;
+    for (const al of items) grid.appendChild(albumCard(al));
+    section.classList.remove('hidden');
+  } catch {
+    // leave hidden
   }
 }
 

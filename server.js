@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -171,6 +171,16 @@ app.get('/api/album/:mbid', async (req, res) => {
     console.error('live album lookup failed', mbid, err.message);
     res.status(502).json({ error: 'Could not fetch this album from MusicBrainz right now. Try again shortly.' });
   }
+});
+
+app.get('/api/album/:mbid/similar', (req, res) => {
+  const { mbid } = req.params;
+  if (!MBID_RE.test(mbid)) {
+    return res.status(400).json({ error: 'Not a valid album id.' });
+  }
+  const album = getAlbumLocal(mbid);
+  if (!album) return res.status(404).json({ error: 'Album not in the database.' });
+  res.json({ results: similarAlbums(mbid, album.genres, 12) });
 });
 
 app.get('/api/stats', (req, res) => {
