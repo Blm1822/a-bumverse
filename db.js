@@ -619,6 +619,24 @@ export function featuredArtist() {
   );
 }
 
+// Billboard-style top-N chart for the dedicated /trending page - same
+// human-only, last-7-days signal as featuredArtist()/trendingSearches(),
+// just returning the ranked list instead of a single winner.
+export function trendingAlbums(limit = 20) {
+  return db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl,
+       COUNT(pv.id) as views
+       FROM page_views pv
+       JOIN albums al ON pv.path = '/album/' || al.mbid
+       WHERE pv.is_bot = 0 AND pv.created_at >= datetime('now', '-7 days')
+       GROUP BY al.mbid
+       ORDER BY views DESC
+       LIMIT ?`
+    )
+    .all(limit);
+}
+
 export function trendingSearches(limit = 8) {
   return db
     .prepare(

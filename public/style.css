@@ -39,7 +39,7 @@ body {
   color: transparent;
 }
 
-.top-nav { display: flex; gap: 20px; }
+.top-nav { display: flex; gap: 20px; flex-wrap: wrap; }
 .top-nav a {
   color: var(--muted);
   text-decoration: none;
@@ -244,6 +244,28 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 .load-more-btn:hover { border-color: var(--accent); }
 .load-more-btn:disabled { opacity: 0.5; cursor: default; }
 .page-count { color: var(--muted); font-size: 12px; margin: -6px 0 20px; }
+
+.chart-list { display: flex; flex-direction: column; gap: 4px; margin-top: 20px; }
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.chart-row:hover { background: var(--panel); }
+.chart-rank { flex: 0 0 32px; font-size: 20px; font-weight: 800; color: var(--muted); text-align: center; }
+/* Two-class compound selector so this reliably beats the plain
+   .card-img-wrap rule (same width/aspect-ratio it shares with every
+   grid card elsewhere) regardless of stylesheet order. */
+.chart-thumb.card-img-wrap { width: 56px; height: 56px; aspect-ratio: unset; border-radius: 6px; flex-shrink: 0; }
+.chart-thumb .card-placeholder { font-size: 22px; }
+.chart-info { flex: 1; min-width: 0; }
+.chart-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-meta { color: var(--muted); font-size: 13px; }
+.chart-views { color: var(--muted); font-size: 13px; flex-shrink: 0; white-space: nowrap; }
 .artist-link { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--muted); }
 .artist-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .genre-tags { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -344,4 +366,6 @@ table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-t
   .hero-body h1 { font-size: 24px; }
   .rail .card { flex-basis: 148px; width: 148px; }
   table.tracks th, table.tracks td { padding: 8px 6px; font-size: 13px; }
+  .chart-meta, .chart-views { font-size: 12px; }
+  .chart-row { gap: 10px; padding: 8px; }
 }

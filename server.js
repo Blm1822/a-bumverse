@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -226,6 +226,10 @@ app.get('/api/recent/all', (req, res) => {
   res.json({ results: recentlyAddedPage(limit, offset), total: stats().albums });
 });
 
+app.get('/api/trending-albums', (req, res) => {
+  res.json({ results: trendingAlbums(20) });
+});
+
 app.get('/api/decades', (req, res) => {
   res.json({ results: decadeCounts() });
 });
@@ -390,6 +394,14 @@ app.get('/artist/:mbid', (req, res) => {
 app.get('/random', (req, res) => {
   const id = randomAlbumId();
   res.redirect(id ? `/album/${id}` : '/');
+});
+
+app.get('/trending', (req, res) => {
+  logView(req, null);
+  res.send(renderIndexWithMeta(req, {
+    title: 'Trending this week',
+    description: 'The most-viewed albums on Albumverse this week.',
+  }));
 });
 
 app.get('/artists', (req, res) => {
