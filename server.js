@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -382,6 +382,14 @@ app.get('/artist/:mbid', (req, res) => {
   if (!artist) return res.sendFile(indexHtmlPath);
   const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
   res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl, jsonLd: artistJsonLd(req, artist) }));
+});
+
+// Real server-side redirect, not a client-side SPA route - works with no
+// JS, and a 302 to the actual canonical album URL means Google never has a
+// non-deterministic "/random" page to try to index.
+app.get('/random', (req, res) => {
+  const id = randomAlbumId();
+  res.redirect(id ? `/album/${id}` : '/');
 });
 
 app.get('/artists', (req, res) => {

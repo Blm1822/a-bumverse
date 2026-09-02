@@ -742,6 +742,11 @@ export function albumsByGenre(genre, limit = 60) {
     .all(genre, limit);
 }
 
+export function randomAlbumId() {
+  const row = db.prepare('SELECT mbid FROM albums ORDER BY RANDOM() LIMIT 1').get();
+  return row ? row.mbid : null;
+}
+
 export function stats() {
   const artists = db.prepare('SELECT COUNT(*) as n FROM artists').get().n;
   const albums = db.prepare('SELECT COUNT(*) as n FROM albums').get().n;
