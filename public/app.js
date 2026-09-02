@@ -26,6 +26,18 @@ function merchLink(artistName, amazonAssociateTag) {
   return `https://www.amazon.com/s?k=${q}${tag}`;
 }
 
+// Search links, not deep links - we have no API access/credentials for any
+// of these services, so this is "good enough, zero setup" the same way the
+// merch link is a plain Amazon search rather than a matched product page.
+function listenLinks(artistName, albumTitle) {
+  const q = encodeURIComponent(`${artistName} ${albumTitle}`);
+  return [
+    { name: 'Spotify', url: `https://open.spotify.com/search/${q}` },
+    { name: 'Apple Music', url: `https://music.apple.com/us/search?term=${q}` },
+    { name: 'YouTube Music', url: `https://music.youtube.com/search?q=${q}` },
+  ];
+}
+
 function fmtLength(ms) {
   if (!ms) return '';
   const totalSec = Math.round(ms / 1000);
@@ -563,6 +575,9 @@ async function renderAlbum(id) {
           <div class="sub">${artistLinks} · ${escapeHtml(data.type)}${data.date ? ' · ' + escapeHtml(data.date) : ''}</div>
           ${data.label ? `<div class="sub">Label: ${escapeHtml(data.label)}</div>` : ''}
           ${(data.genres || []).length ? `<div class="genre-tags">${data.genres.map((g) => `<a href="/genre?name=${encodeURIComponent(g)}" class="genre-tag" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</a>`).join('')}</div>` : ''}
+          <div class="listen-links">
+            ${listenLinks(data.artist, data.title).map((l) => `<a href="${l.url}" class="listen-link" target="_blank" rel="noopener">Listen on ${l.name} &rarr;</a>`).join('')}
+          </div>
         </div>
       </div>
       <div class="table-scroll">
