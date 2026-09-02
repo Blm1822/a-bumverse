@@ -38,6 +38,15 @@ function listenLinks(artistName, albumTitle) {
   ];
 }
 
+// SeatGeek search - not a real ticket marketplace of our own (no
+// tickets ever change hands here), same "search link, no API key"
+// approach as merchLink/listenLinks. SeatGeek runs a real affiliate
+// program, so this is a genuine future revenue path once there's an
+// account behind it, same story as Amazon Associates.
+function ticketsLink(artistName) {
+  return `https://seatgeek.com/search?search=${encodeURIComponent(artistName)}`;
+}
+
 function fmtLength(ms) {
   if (!ms) return '';
   const totalSec = Math.round(ms / 1000);
@@ -495,6 +504,7 @@ async function renderArtist(id) {
           ${data.bio ? `<p class="bio">${escapeHtml(data.bio)}</p>` : ''}
           <div class="artist-links">
             ${data.wikiUrl ? `<a class="wiki-link" href="${data.wikiUrl}" target="_blank" rel="noopener">via Wikipedia</a>` : ''}
+            <a class="tickets-link" href="${ticketsLink(data.name)}" target="_blank" rel="noopener sponsored">Find ${escapeHtml(data.name)} tickets &rarr;</a>
             <a class="merch-link" href="${merchLink(data.name, config.amazonAssociateTag)}" target="_blank" rel="noopener sponsored">Shop ${escapeHtml(data.name)} merch &rarr;</a>
           </div>
         </div>

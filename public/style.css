@@ -282,6 +282,16 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
   border-radius: 999px;
 }
 .merch-link:hover { filter: brightness(1.05); }
+.tickets-link {
+  color: var(--accent2);
+  border: 1px solid var(--accent2);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+.tickets-link:hover { background: var(--accent2); color: #16142a; }
 
 table.tracks { width: 100%; border-collapse: collapse; }
 table.tracks th, table.tracks td {
