@@ -496,14 +496,35 @@ async function renderArtist(id) {
         <div class="grid" id="artist-appearances-grid"></div>
       ` : ''}
       ${!(data.albums || []).length && !(data.appearances || []).length ? '<p class="empty">Nothing on file for this artist yet.</p>' : ''}
+      <div id="similar-artists-section" class="hidden">
+        <h2 class="section-title">Similar artists</h2>
+        <div class="grid" id="similar-artists-grid"></div>
+      </div>
     `;
     document.getElementById('artist-back-btn').addEventListener('click', () => history.back());
     const grid = document.getElementById('artist-albums-grid');
     if (grid) for (const al of data.albums || []) grid.appendChild(albumCard(al));
     const appearGrid = document.getElementById('artist-appearances-grid');
     if (appearGrid) for (const al of data.appearances || []) appearGrid.appendChild(albumCard(al));
+    loadSimilarArtists(data.id);
   } catch (err) {
     artistEl.innerHTML = `<p class="error">Failed to load artist: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function loadSimilarArtists(id) {
+  const section = document.getElementById('similar-artists-section');
+  const grid = document.getElementById('similar-artists-grid');
+  if (!section || !grid) return;
+  try {
+    const res = await fetch(`/api/artist/${id}/similar`);
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) return;
+    for (const a of items) grid.appendChild(artistCard(a));
+    section.classList.remove('hidden');
+  } catch {
+    // leave hidden
   }
 }
 

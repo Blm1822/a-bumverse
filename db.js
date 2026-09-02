@@ -696,6 +696,39 @@ export function similarAlbums(albumMbid, genres, limit = 12) {
     .all(...genres, albumMbid, limit);
 }
 
+// Other artists whose albums share at least one genre with this artist's own
+// (aggregated across their whole discography, not a single album), ranked
+// the same way similarAlbums() is - most-shared-genres first, random
+// tiebreak. Empty when this artist has no genre data yet.
+export function similarArtists(artistMbid, limit = 12) {
+  const genres = db
+    .prepare(
+      `SELECT DISTINCT ag.genre
+       FROM album_artists aa
+       JOIN album_genres ag ON ag.album_mbid = aa.album_mbid
+       WHERE aa.artist_mbid = ?`
+    )
+    .all(artistMbid)
+    .map((r) => r.genre);
+  if (!genres.length) return [];
+
+  const placeholders = genres.map(() => '?').join(',');
+  return db
+    .prepare(
+      `SELECT a.mbid as id, a.name, a.disambiguation, COUNT(DISTINCT ag.genre) as sharedGenres,
+       ${ARTIST_IMAGE_SQL} as coverArtUrl,
+       (SELECT COUNT(*) FROM album_artists aa3 WHERE aa3.artist_mbid = a.mbid) as albumCount
+       FROM artists a
+       JOIN album_artists aa ON aa.artist_mbid = a.mbid
+       JOIN album_genres ag ON ag.album_mbid = aa.album_mbid
+       WHERE ag.genre IN (${placeholders}) AND a.mbid != ?
+       GROUP BY a.mbid
+       ORDER BY sharedGenres DESC, RANDOM()
+       LIMIT ?`
+    )
+    .all(...genres, artistMbid, limit);
+}
+
 export function albumsByGenre(genre, limit = 60) {
   return db
     .prepare(

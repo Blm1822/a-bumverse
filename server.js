@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -277,6 +277,15 @@ app.get('/api/artist/:mbid', async (req, res) => {
     }
   }
   res.json(artist);
+});
+
+app.get('/api/artist/:mbid/similar', (req, res) => {
+  const { mbid } = req.params;
+  if (!MBID_RE.test(mbid)) {
+    return res.status(400).json({ error: 'Not a valid artist id.' });
+  }
+  if (!getArtistLocal(mbid)) return res.status(404).json({ error: 'Artist not in the database.' });
+  res.json({ results: similarArtists(mbid, 12) });
 });
 
 // --- Real, shareable URLs for albums/artists (SPA routes, server-rendered
