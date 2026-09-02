@@ -179,15 +179,15 @@ async function loadHero() {
     }
     heroEl.classList.remove('hidden');
     heroEl.innerHTML = `
-      <div class="hero-art">${data.coverArtUrl ? `<img src="${data.coverArtUrl}" alt="" onerror="this.parentElement.style.visibility='hidden'" />` : ''}</div>
+      <div class="hero-art">${data.imageUrl ? `<img src="${data.imageUrl}" alt="" onerror="this.parentElement.style.visibility='hidden'" />` : ''}</div>
       <div class="hero-body">
-        <div class="hero-eyebrow">Featured album</div>
-        <h1>${escapeHtml(data.title)}</h1>
-        <div class="hero-meta">${escapeHtml(data.artist || '')}${data.date ? ' · ' + escapeHtml(data.date.slice(0, 4)) : ''}${data.type ? ' · ' + escapeHtml(data.type) : ''}</div>
-        <button class="hero-cta" type="button">View tracklist &rarr;</button>
+        <div class="hero-eyebrow">Featured artist</div>
+        <h1>${escapeHtml(data.name)}</h1>
+        <div class="hero-meta">${data.disambiguation ? escapeHtml(data.disambiguation) : 'Browse the discography'}</div>
+        <button class="hero-cta" type="button">View discography &rarr;</button>
       </div>
     `;
-    heroEl.onclick = () => navigate(`/album/${data.id}`);
+    heroEl.onclick = () => navigate(`/artist/${data.id}`);
   } catch {
     heroEl.classList.add('hidden');
   }

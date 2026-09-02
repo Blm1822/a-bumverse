@@ -572,25 +572,48 @@ export function getArtistLocal(mbid) {
 // Most-viewed album in the last 7 days, so the homepage spotlight reflects
 // actual visitor interest rather than just whatever imported last. Falls back
 // to the newest album once traffic is too thin to have a real "most viewed".
-export function featuredAlbum() {
+// An album cover is often missing (unofficial/bootleg releases especially
+// rarely have Cover Art Archive entries), so a most-viewed-*album* hero can
+// land on a flat, colorless spotlight. An artist nearly always has an image
+// available - their own Wikipedia photo, or failing that their newest
+// album's cover - so feature the artist instead; the underlying image
+// fallback here matches listArtists()/getArtistLocal() exactly.
+const ARTIST_IMAGE_SQL = `COALESCE(a.wiki_image_url, (
+  SELECT al.cover_art_url FROM albums al
+  JOIN album_artists aa2 ON aa2.album_mbid = al.mbid
+  WHERE aa2.artist_mbid = a.mbid AND al.cover_art_url IS NOT NULL
+  ORDER BY al.release_date DESC LIMIT 1
+))`;
+
+export function featuredArtist() {
   const topViewed = db
     .prepare(
-      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+      `SELECT a.mbid as id, a.name, a.disambiguation, ${ARTIST_IMAGE_SQL} as imageUrl
        FROM page_views pv
-       JOIN albums al ON pv.path = '/album/' || al.mbid
+       JOIN artists a ON pv.path = '/artist/' || a.mbid
        WHERE pv.is_bot = 0 AND pv.created_at >= datetime('now', '-7 days')
-       GROUP BY al.mbid
+       GROUP BY a.mbid
+       HAVING imageUrl IS NOT NULL
        ORDER BY COUNT(pv.id) DESC
        LIMIT 1`
     )
     .get();
   if (topViewed) return topViewed;
 
+  // No traffic yet (or nobody viewed has an image) - random pick among
+  // artists that have one, so the hero never shows up blank/colorless.
   return (
     db
       .prepare(
-        `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
-         FROM albums ORDER BY added_at DESC, rowid DESC LIMIT 1`
+        `SELECT a.mbid as id, a.name, a.disambiguation, ${ARTIST_IMAGE_SQL} as imageUrl
+         FROM artists a
+         WHERE a.wiki_image_url IS NOT NULL
+            OR EXISTS (
+              SELECT 1 FROM albums al JOIN album_artists aa2 ON aa2.album_mbid = al.mbid
+              WHERE aa2.artist_mbid = a.mbid AND al.cover_art_url IS NOT NULL
+            )
+         ORDER BY RANDOM()
+         LIMIT 1`
       )
       .get() || null
   );
