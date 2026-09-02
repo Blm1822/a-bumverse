@@ -1,11 +1,12 @@
 :root {
-  --bg: #0c0a18;
-  --panel: #171429;
-  --border: #2c2748;
-  --text: #ece9f7;
-  --muted: #9d97b8;
-  --accent: #a78bfa;
-  --accent2: #f472b6;
+  --bg: #1a1725;
+  --panel: #241f36;
+  --border: #3a3456;
+  --text: #f3f1fa;
+  --muted: #b3acc9;
+  --accent: #b49bfb;
+  --accent2: #f78dc0;
+  --surface: #2b2642;
 }
 
 * { box-sizing: border-box; }
@@ -54,7 +55,7 @@ body {
   padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: #10131a;
+  background: var(--surface);
   color: var(--text);
   font-size: 14px;
 }
@@ -81,7 +82,7 @@ body {
 }
 .suggest-item:last-child { border-bottom: none; }
 .suggest-item:hover { background: rgba(167, 139, 250, 0.12); }
-.suggest-thumb { width: 32px; height: 32px; border-radius: 4px; object-fit: cover; background: #1f2330; flex-shrink: 0; }
+.suggest-thumb { width: 32px; height: 32px; border-radius: 4px; object-fit: cover; background: var(--surface); flex-shrink: 0; }
 .suggest-text { min-width: 0; }
 .suggest-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .suggest-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -128,7 +129,7 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
   height: 160px;
   border-radius: 12px;
   overflow: hidden;
-  background: #1f2330;
+  background: var(--surface);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
 .hero-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -150,6 +151,21 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
   color: var(--accent);
 }
 .hero-cta:hover { background: var(--accent); color: #16142a; filter: none; }
+
+.browse-selects { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 48px; }
+.browse-select-group { flex: 1; min-width: 220px; }
+.browse-select-label { display: block; font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.browse-select {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.browse-select:hover, .browse-select:focus { border-color: var(--accent); outline: none; }
 
 .trend-wrap { display: flex; flex-wrap: wrap; gap: 10px; }
 .trend-pill {
@@ -203,7 +219,7 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 .card-img-wrap {
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: #1f2330;
+  background: var(--surface);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -217,7 +233,7 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 
 #album, #artist { margin-top: 8px; }
 .album-head { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
-.album-head img { width: 180px; height: 180px; object-fit: cover; border-radius: 8px; background: #1f2330; }
+.album-head img { width: 180px; height: 180px; object-fit: cover; border-radius: 8px; background: var(--surface); }
 .album-head h2 { margin: 0 0 6px; font-size: 26px; }
 .album-head .sub { color: var(--muted); }
 #artist h2 { margin: 0 0 6px; font-size: 26px; }
@@ -232,7 +248,7 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 .artist-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .genre-tags { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .genre-tag {
-  background: #1f2330;
+  background: var(--surface);
   border: 1px solid var(--border);
   color: var(--muted);
   border-radius: 999px;
@@ -265,7 +281,7 @@ table.tracks th, table.tracks td {
   font-size: 14px;
 }
 table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
-.credit-tag { display: inline-block; background: #1f2330; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
+.credit-tag { display: inline-block; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
 .credit-tag .role { color: var(--muted); }
 .credits-title { margin-top: 24px; display: flex; align-items: baseline; gap: 8px; }
 .credits-source { text-transform: none; letter-spacing: normal; font-size: 11px; color: var(--muted); font-weight: 400; }

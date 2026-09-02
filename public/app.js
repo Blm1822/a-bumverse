@@ -219,29 +219,31 @@ async function loadTrending() {
   }
 }
 
+function updateBrowseSelectSectionVisibility() {
+  const anyVisible = !document.getElementById('decades-section').classList.contains('hidden')
+    || !document.getElementById('genres-section').classList.contains('hidden');
+  document.getElementById('browse-select-section').classList.toggle('hidden', !anyVisible);
+}
+
 async function loadDecades() {
-  const section = document.getElementById('decades-section');
-  const rail = document.getElementById('decades-rail');
+  const group = document.getElementById('decades-section');
+  const select = document.getElementById('decades-select');
   try {
     const res = await fetch('/api/decades');
     const data = await res.json();
     const items = data.results || [];
     if (!items.length) {
-      section.classList.add('hidden');
+      group.classList.add('hidden');
+      updateBrowseSelectSectionVisibility();
       return;
     }
-    section.classList.remove('hidden');
-    rail.innerHTML = '';
-    for (const d of items) {
-      const pill = document.createElement('button');
-      pill.type = 'button';
-      pill.className = 'trend-pill';
-      pill.textContent = `${d.decade}s (${d.n})`;
-      pill.addEventListener('click', () => navigate(`/decade/${d.decade}`));
-      rail.appendChild(pill);
-    }
+    group.classList.remove('hidden');
+    updateBrowseSelectSectionVisibility();
+    select.innerHTML = '<option value="">Choose a decade&hellip;</option>'
+      + items.map((d) => `<option value="${d.decade}">${d.decade}s (${d.n})</option>`).join('');
   } catch {
-    section.classList.add('hidden');
+    group.classList.add('hidden');
+    updateBrowseSelectSectionVisibility();
   }
 }
 
@@ -345,28 +347,24 @@ async function renderRecentPage() {
 }
 
 async function loadGenres() {
-  const section = document.getElementById('genres-section');
-  const rail = document.getElementById('genres-rail');
+  const group = document.getElementById('genres-section');
+  const select = document.getElementById('genres-select');
   try {
     const res = await fetch('/api/genres');
     const data = await res.json();
     const items = data.results || [];
     if (!items.length) {
-      section.classList.add('hidden');
+      group.classList.add('hidden');
+      updateBrowseSelectSectionVisibility();
       return;
     }
-    section.classList.remove('hidden');
-    rail.innerHTML = '';
-    for (const g of items) {
-      const pill = document.createElement('button');
-      pill.type = 'button';
-      pill.className = 'trend-pill';
-      pill.textContent = `${g.genre} (${g.n})`;
-      pill.addEventListener('click', () => navigate(`/genre?name=${encodeURIComponent(g.genre)}`));
-      rail.appendChild(pill);
-    }
+    group.classList.remove('hidden');
+    updateBrowseSelectSectionVisibility();
+    select.innerHTML = '<option value="">Choose a genre&hellip;</option>'
+      + items.map((g) => `<option value="${escapeHtml(g.genre)}">${escapeHtml(g.genre)} (${g.n})</option>`).join('');
   } catch {
-    section.classList.add('hidden');
+    group.classList.add('hidden');
+    updateBrowseSelectSectionVisibility();
   }
 }
 
@@ -665,6 +663,13 @@ for (const link of [navArtists, navRecent]) {
     navigate(link.getAttribute('href'));
   });
 }
+
+document.getElementById('decades-select').addEventListener('change', (e) => {
+  if (e.target.value) navigate(`/decade/${e.target.value}`);
+});
+document.getElementById('genres-select').addEventListener('change', (e) => {
+  if (e.target.value) navigate(`/genre?name=${encodeURIComponent(e.target.value)}`);
+});
 
 route();
 
