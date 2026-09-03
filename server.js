@@ -5,10 +5,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
+import { hashPassword, verifyPassword, generateSessionToken } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -102,6 +103,98 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.use(express.json());
 app.use('/api/', apiLimiter);
 
+// --- Accounts: a hand-rolled cookie session, not a library (express-session
+// et al.), since the project already leans on nothing-but-express+node:crypto
+// for the analytics Basic Auth above - this is the same pattern applied to
+// visitor accounts. res.cookie()/res.clearCookie() are native Express, so the
+// only thing missing is reading an incoming Cookie header back out, hence the
+// small parser below instead of adding cookie-parser as a dependency. ---
+
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=');
+    if (i === -1) continue;
+    const key = part.slice(0, i).trim();
+    if (key) out[key] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
+function sessionCookieOptions(req) {
+  return { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: SESSION_TTL_MS, path: '/' };
+}
+
+// Every request gets a cheap, indexed session lookup so req.user is available
+// wherever it's needed (review posting, the /api/auth/me check) without every
+// route re-parsing cookies itself.
+app.use((req, res, next) => {
+  const token = parseCookies(req).av_session;
+  req.user = token ? getSessionUser(token) : null;
+  next();
+});
+
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
+
+function validateSignup(username, password) {
+  if (!USERNAME_RE.test(username || '')) {
+    return 'Username must be 3-20 characters: letters, numbers, underscore only.';
+  }
+  if (!password || password.length < 8) return 'Password must be at least 8 characters.';
+  if (password.length > 200) return 'Password is too long.';
+  return null;
+}
+
+// Tighter than the general apiLimiter (which is really about not starving
+// MusicBrainz) - this specifically bounds password-guessing attempts per IP.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts - try again in a few minutes.' },
+});
+
+app.post('/api/auth/signup', authLimiter, (req, res) => {
+  const { username, password } = req.body || {};
+  const error = validateSignup(username, password);
+  if (error) return res.status(400).json({ error });
+  if (getUserByUsername(username)) return res.status(409).json({ error: 'That username is already taken.' });
+
+  const userId = createUser(username, hashPassword(password));
+  const token = generateSessionToken();
+  createSession(userId, token, SESSION_TTL_MS);
+  res.cookie('av_session', token, sessionCookieOptions(req));
+  res.json({ id: userId, username });
+});
+
+app.post('/api/auth/login', authLimiter, (req, res) => {
+  const { username, password } = req.body || {};
+  const user = getUserByUsername(username || '');
+  if (!user || !verifyPassword(password || '', user.password_hash)) {
+    return res.status(401).json({ error: 'Invalid username or password.' });
+  }
+  const token = generateSessionToken();
+  createSession(user.id, token, SESSION_TTL_MS);
+  res.cookie('av_session', token, sessionCookieOptions(req));
+  res.json({ id: user.id, username: user.username });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = parseCookies(req).av_session;
+  if (token) deleteSession(token);
+  res.clearCookie('av_session', { path: '/' });
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  res.json(req.user || null);
+});
+
 // Fast, local-only, no MusicBrainz fallback - unlike /api/search this is
 // meant to be called on every keystroke, so it can never afford the live
 // lookup's multi-second retry path.
@@ -181,6 +274,53 @@ app.get('/api/album/:mbid/similar', (req, res) => {
   const album = getAlbumLocal(mbid);
   if (!album) return res.status(404).json({ error: 'Album not in the database.' });
   res.json({ results: similarAlbums(mbid, album.genres, 12) });
+});
+
+app.get('/api/album/:mbid/reviews', (req, res) => {
+  const { mbid } = req.params;
+  if (!MBID_RE.test(mbid)) {
+    return res.status(400).json({ error: 'Not a valid album id.' });
+  }
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const yourReview = req.user ? getUserReviewForAlbum(req.user.id, mbid) : null;
+  res.json({ results: getReviewsForAlbum(mbid, 20, offset), total: countReviewsForAlbum(mbid), yourReview });
+});
+
+// Rate limited well below authLimiter's brute-force bound - this just keeps
+// one visitor from spamming reviews, not guarding a secret.
+const reviewLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many reviews submitted - try again later.' },
+});
+
+app.post('/api/album/:mbid/review', reviewLimiter, (req, res) => {
+  const { mbid } = req.params;
+  if (!MBID_RE.test(mbid)) {
+    return res.status(400).json({ error: 'Not a valid album id.' });
+  }
+  if (!req.user) return res.status(401).json({ error: 'Sign in to rate this album.' });
+  if (!albumExists(mbid)) return res.status(404).json({ error: 'Album not in the database.' });
+
+  const rating = Number(req.body?.rating);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 10) {
+    return res.status(400).json({ error: 'Rating must be a whole number from 1 to 10.' });
+  }
+  const body = String(req.body?.body || '').trim().slice(0, 4000);
+  upsertReview(req.user.id, mbid, rating, body);
+  res.json({ ok: true, rating: albumRatingSummary(mbid) });
+});
+
+app.delete('/api/album/:mbid/review', (req, res) => {
+  const { mbid } = req.params;
+  if (!MBID_RE.test(mbid)) {
+    return res.status(400).json({ error: 'Not a valid album id.' });
+  }
+  if (!req.user) return res.status(401).json({ error: 'Sign in required.' });
+  deleteReview(req.user.id, mbid);
+  res.json({ ok: true, rating: albumRatingSummary(mbid) });
 });
 
 app.get('/api/stats', (req, res) => {
@@ -329,6 +469,13 @@ function albumJsonLd(req, album) {
     image: album.coverArtUrl || undefined,
     genre: (album.genres || []).length ? album.genres : undefined,
     numTracks: (album.tracks || []).length || undefined,
+    aggregateRating: album.rating && album.rating.count ? {
+      '@type': 'AggregateRating',
+      ratingValue: album.rating.average,
+      ratingCount: album.rating.count,
+      bestRating: 10,
+      worstRating: 1,
+    } : undefined,
     track: (album.tracks || []).map((t) => ({
       '@type': 'MusicRecording',
       name: t.title,

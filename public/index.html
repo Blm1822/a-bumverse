@@ -31,7 +31,15 @@
       </div>
       <button type="submit">Search</button>
     </form>
+    <div class="auth-nav" id="auth-nav"></div>
   </header>
+
+  <div class="modal-overlay hidden" id="auth-modal-overlay">
+    <div class="modal">
+      <button type="button" class="modal-close" id="auth-modal-close" aria-label="Close">&times;</button>
+      <div id="auth-modal-body"></div>
+    </div>
+  </div>
 
   <main id="app">
     <div id="home-view">

@@ -17,10 +17,109 @@ const homeLink = document.getElementById('home-link');
 const artistsGrid = document.getElementById('artists-grid');
 const recentGrid = document.getElementById('recent-grid');
 const suggestDropdown = document.getElementById('suggest-dropdown');
+const authNavEl = document.getElementById('auth-nav');
+const authModalOverlay = document.getElementById('auth-modal-overlay');
+const authModalBody = document.getElementById('auth-modal-body');
+const authModalClose = document.getElementById('auth-modal-close');
 
 // Fired once at load, awaited inside renderArtist() so even the first artist
 // page view (not just later ones) gets the affiliate tag if one's set.
 const configPromise = fetch('/api/config').then((r) => r.json()).catch(() => ({}));
+
+// --- Accounts: sign-in state lives in a cookie session (server.js), this is
+// just the client-side mirror of it so the UI (nav, rating widgets) knows
+// whether to show "sign in" or the signed-in view. ---
+
+let currentUser = null;
+
+async function loadCurrentUser() {
+  try {
+    const res = await fetch('/api/auth/me');
+    currentUser = await res.json();
+  } catch {
+    currentUser = null;
+  }
+  renderAuthNav();
+}
+
+function renderAuthNav() {
+  if (currentUser && currentUser.username) {
+    authNavEl.innerHTML = `
+      <span class="auth-username">${escapeHtml(currentUser.username)}</span>
+      <button type="button" class="auth-link" id="auth-signout-btn">Sign out</button>
+    `;
+    document.getElementById('auth-signout-btn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      currentUser = null;
+      renderAuthNav();
+      route();
+    });
+  } else {
+    authNavEl.innerHTML = '<button type="button" class="auth-link" id="auth-signin-btn">Sign in</button>';
+    document.getElementById('auth-signin-btn').addEventListener('click', () => openAuthModal('login'));
+  }
+}
+
+function closeAuthModal() {
+  authModalOverlay.classList.add('hidden');
+  authModalBody.innerHTML = '';
+}
+
+function openAuthModal(mode) {
+  renderAuthForm(mode);
+  authModalOverlay.classList.remove('hidden');
+}
+
+function renderAuthForm(mode) {
+  const isLogin = mode === 'login';
+  authModalBody.innerHTML = `
+    <h2>${isLogin ? 'Sign in' : 'Create an account'}</h2>
+    <form id="auth-form">
+      <label class="auth-label">Username
+        <input type="text" id="auth-username" autocomplete="username" required />
+      </label>
+      <label class="auth-label">Password
+        <input type="password" id="auth-password" autocomplete="${isLogin ? 'current-password' : 'new-password'}" required />
+      </label>
+      <p class="auth-error hidden" id="auth-error"></p>
+      <button type="submit" class="auth-submit">${isLogin ? 'Sign in' : 'Create account'}</button>
+    </form>
+    <button type="button" class="auth-switch" id="auth-switch-btn">${isLogin ? 'Need an account? Sign up' : 'Already have an account? Sign in'}</button>
+  `;
+  document.getElementById('auth-switch-btn').addEventListener('click', () => renderAuthForm(isLogin ? 'signup' : 'login'));
+  document.getElementById('auth-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('auth-username').value.trim();
+    const password = document.getElementById('auth-password').value;
+    const errorEl = document.getElementById('auth-error');
+    errorEl.classList.add('hidden');
+    try {
+      const res = await fetch(`/api/auth/${isLogin ? 'login' : 'signup'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error || 'Something went wrong.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      currentUser = data;
+      renderAuthNav();
+      closeAuthModal();
+      route();
+    } catch {
+      errorEl.textContent = 'Network error - try again.';
+      errorEl.classList.remove('hidden');
+    }
+  });
+}
+
+authModalClose.addEventListener('click', closeAuthModal);
+authModalOverlay.addEventListener('click', (e) => {
+  if (e.target === authModalOverlay) closeAuthModal();
+});
 
 function merchLink(artistName, amazonAssociateTag) {
   const q = encodeURIComponent(`${artistName} merch`);
@@ -669,6 +768,7 @@ async function renderAlbum(id) {
           <h2>${escapeHtml(data.title)}</h2>
           <div class="sub">${artistLinks} · ${escapeHtml(data.type)}${data.date ? ' · ' + escapeHtml(data.date) : ''}</div>
           ${data.label ? `<div class="sub">Label: ${escapeHtml(data.label)}</div>` : ''}
+          <div class="rating-summary" id="rating-summary">${renderRatingSummaryHtml(data.rating)}</div>
           ${(data.genres || []).length ? `<div class="genre-tags">${data.genres.map((g) => `<a href="/genre?name=${encodeURIComponent(g)}" class="genre-tag" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</a>`).join('')}</div>` : ''}
           <div class="listen-links">
             ${listenLinks(data.artist, data.title).map((l) => `<a href="${l.url}" class="listen-link" target="_blank" rel="noopener">Listen on ${l.name} &rarr;</a>`).join('')}
@@ -688,6 +788,12 @@ async function renderAlbum(id) {
         <h2 class="section-title credits-title">Additional credits <span class="credits-source">via Discogs</span></h2>
         <div class="credits-wrap">${creditTags(data.credits)}</div>
       ` : ''}
+      <div id="reviews-section">
+        <h2 class="section-title">Ratings &amp; reviews</h2>
+        <div id="rate-widget"></div>
+        <div id="reviews-list"></div>
+        <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="reviews-load-more">Load more</button></div>
+      </div>
       <div id="similar-albums-section" class="hidden">
         <h2 class="section-title">Similar albums</h2>
         <div class="grid" id="similar-albums-grid"></div>
@@ -708,6 +814,7 @@ async function renderAlbum(id) {
     }
     wireShareLinks(albumEl);
     loadSimilarAlbums(data.id);
+    loadReviews(data.id);
   } catch (err) {
     albumEl.innerHTML = `<p class="error">Failed to load album: ${escapeHtml(err.message)}</p>`;
   }
@@ -729,6 +836,133 @@ async function loadSimilarAlbums(id) {
     section.classList.remove('hidden');
   } catch {
     // leave hidden
+  }
+}
+
+// --- Ratings & reviews: a 1-10 score plus optional text, one per user per
+// album (posting again just updates it - see the upsert in db.js). The
+// average badge (renderRatingSummaryHtml) is always shown; the interactive
+// picker below it only renders once we know whether the visitor is signed in
+// and, if so, whether they've already rated this album. ---
+
+function renderRatingSummaryHtml(rating) {
+  return rating && rating.count
+    ? `<span class="rating-score">${rating.average}</span><span class="rating-outof">/10</span><span class="rating-count">(${rating.count} rating${rating.count === 1 ? '' : 's'})</span>`
+    : '<span class="rating-none">Not yet rated</span>';
+}
+
+function updateRatingSummary(rating) {
+  const el = document.getElementById('rating-summary');
+  if (el) el.innerHTML = renderRatingSummaryHtml(rating);
+}
+
+function renderRateWidget(albumId, yourReview) {
+  const widget = document.getElementById('rate-widget');
+  if (!widget) return;
+
+  if (!currentUser) {
+    widget.innerHTML = '<button type="button" class="auth-link" id="rate-signin-btn">Sign in to rate this album</button>';
+    document.getElementById('rate-signin-btn').addEventListener('click', () => openAuthModal('login'));
+    return;
+  }
+
+  let picked = yourReview ? yourReview.rating : 0;
+  const picks = Array.from({ length: 10 }, (_, i) => i + 1)
+    .map((n) => `<button type="button" class="rate-num${n === picked ? ' selected' : ''}" data-n="${n}">${n}</button>`)
+    .join('');
+  widget.innerHTML = `
+    <div class="rate-picker">${picks}</div>
+    <textarea id="rate-body" placeholder="Write a review (optional)" maxlength="4000">${escapeHtml((yourReview && yourReview.body) || '')}</textarea>
+    <div class="rate-actions">
+      <button type="button" class="rate-submit" id="rate-submit-btn"${picked ? '' : ' disabled'}>${yourReview ? 'Update rating' : 'Submit rating'}</button>
+      ${yourReview ? '<button type="button" class="rate-remove" id="rate-remove-btn">Remove my rating</button>' : ''}
+    </div>
+    <p class="auth-error hidden" id="rate-error"></p>
+  `;
+
+  const buttons = widget.querySelectorAll('.rate-num');
+  const submitBtn = document.getElementById('rate-submit-btn');
+  for (const b of buttons) {
+    b.addEventListener('click', () => {
+      picked = Number(b.dataset.n);
+      for (const b2 of buttons) b2.classList.toggle('selected', Number(b2.dataset.n) === picked);
+      submitBtn.disabled = false;
+    });
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    const errorEl = document.getElementById('rate-error');
+    errorEl.classList.add('hidden');
+    try {
+      const res = await fetch(`/api/album/${albumId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: picked, body: document.getElementById('rate-body').value.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error || 'Could not save your rating.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      updateRatingSummary(data.rating);
+      loadReviews(albumId);
+    } catch {
+      errorEl.textContent = 'Network error - try again.';
+      errorEl.classList.remove('hidden');
+    }
+  });
+
+  const removeBtn = document.getElementById('rate-remove-btn');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', async () => {
+      const res = await fetch(`/api/album/${albumId}/review`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        updateRatingSummary(data.rating);
+        loadReviews(albumId);
+      }
+    });
+  }
+}
+
+function reviewRow(r) {
+  const row = document.createElement('div');
+  row.className = 'review-row';
+  row.innerHTML = `
+    <div class="review-head">
+      <span class="review-user">${escapeHtml(r.username)}</span>
+      <span class="review-rating">${r.rating}/10</span>
+      <span class="review-date">${escapeHtml((r.updatedAt || '').slice(0, 10))}</span>
+    </div>
+    ${r.body ? `<p class="review-body">${escapeHtml(r.body)}</p>` : ''}
+  `;
+  return row;
+}
+
+async function loadReviews(albumId, offset = 0) {
+  const list = document.getElementById('reviews-list');
+  const button = document.getElementById('reviews-load-more');
+  if (!list) return;
+  try {
+    const res = await fetch(`/api/album/${albumId}/reviews?offset=${offset}`);
+    const data = await res.json();
+    const items = data.results || [];
+
+    if (offset === 0) {
+      renderRateWidget(albumId, data.yourReview);
+      list.innerHTML = items.length ? '' : '<p class="empty">No reviews yet — be the first.</p>';
+    }
+    for (const r of items) list.appendChild(reviewRow(r));
+
+    const newOffset = offset + items.length;
+    const hasMore = newOffset < (data.total || 0);
+    if (button) {
+      button.onclick = () => loadReviews(albumId, newOffset);
+      button.parentElement.classList.toggle('hidden', !hasMore);
+    }
+  } catch {
+    if (offset === 0) list.innerHTML = '<p class="error">Failed to load reviews.</p>';
   }
 }
 
@@ -829,6 +1063,7 @@ document.getElementById('genres-select').addEventListener('change', (e) => {
 });
 
 route();
+loadCurrentUser();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

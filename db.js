@@ -99,6 +99,30 @@ CREATE TABLE IF NOT EXISTS mb_cache (
   expires_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  album_mbid TEXT NOT NULL REFERENCES albums(mbid) ON DELETE CASCADE,
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 10),
+  body TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_id, album_mbid)
+);
+
 CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
@@ -108,6 +132,9 @@ CREATE INDEX IF NOT EXISTS idx_pageviews_path ON page_views(path);
 CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre);
 CREATE INDEX IF NOT EXISTS idx_mb_cache_expires ON mb_cache(expires_at);
 CREATE INDEX IF NOT EXISTS idx_album_credits_album ON album_credits(album_mbid);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_album ON reviews(album_mbid);
+CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
 `);
 
 // Migration for DBs created before added_at existed.
@@ -182,6 +209,11 @@ db.prepare('DELETE FROM mb_cache WHERE expires_at < ?').run(Date.now());
 setInterval(() => {
   db.prepare('DELETE FROM mb_cache WHERE expires_at < ?').run(Date.now());
 }, 10 * 60 * 1000).unref();
+
+db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
+setInterval(() => {
+  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
+}, 60 * 60 * 1000).unref();
 
 export function getCachedResponse(url) {
   const row = db.prepare('SELECT data, expires_at FROM mb_cache WHERE url = ?').get(url);
@@ -389,7 +421,80 @@ export function getAlbumLocal(mbid) {
     delete track.id;
   }
 
-  return { ...album, artists, genres, credits, tracks };
+  return { ...album, artists, genres, credits, tracks, rating: albumRatingSummary(mbid) };
+}
+
+// --- Accounts, sessions, ratings & reviews ---
+
+export function createUser(username, passwordHash) {
+  const result = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(username, passwordHash);
+  return Number(result.lastInsertRowid);
+}
+
+// COLLATE NOCASE so "Alice" and "alice" are treated as the same account both
+// at lookup time and via the UNIQUE constraint's own default binary collation
+// would otherwise miss - sign-up uniqueness checks and login both go through
+// this function, so both stay consistent.
+export function getUserByUsername(username) {
+  return db.prepare('SELECT id, username, password_hash FROM users WHERE username = ? COLLATE NOCASE').get(username);
+}
+
+export function createSession(userId, token, ttlMs) {
+  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, userId, Date.now() + ttlMs);
+}
+
+export function getSessionUser(token) {
+  const row = db
+    .prepare(
+      `SELECT u.id as id, u.username as username, s.expires_at as expiresAt
+       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`
+    )
+    .get(token);
+  if (!row) return null;
+  if (row.expiresAt < Date.now()) {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    return null;
+  }
+  return { id: row.id, username: row.username };
+}
+
+export function deleteSession(token) {
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+}
+
+export function upsertReview(userId, albumMbid, rating, body) {
+  db.prepare(
+    `INSERT INTO reviews (user_id, album_mbid, rating, body) VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, album_mbid) DO UPDATE SET
+       rating = excluded.rating, body = excluded.body, updated_at = CURRENT_TIMESTAMP`
+  ).run(userId, albumMbid, rating, body || null);
+}
+
+export function deleteReview(userId, albumMbid) {
+  db.prepare('DELETE FROM reviews WHERE user_id = ? AND album_mbid = ?').run(userId, albumMbid);
+}
+
+export function getUserReviewForAlbum(userId, albumMbid) {
+  return db.prepare('SELECT rating, body FROM reviews WHERE user_id = ? AND album_mbid = ?').get(userId, albumMbid);
+}
+
+export function albumRatingSummary(albumMbid) {
+  const row = db.prepare('SELECT COUNT(*) as n, AVG(rating) as avg FROM reviews WHERE album_mbid = ?').get(albumMbid);
+  return { count: row.n, average: row.n ? Math.round(row.avg * 10) / 10 : null };
+}
+
+export function getReviewsForAlbum(albumMbid, limit = 20, offset = 0) {
+  return db
+    .prepare(
+      `SELECT r.rating as rating, r.body as body, r.updated_at as updatedAt, u.username as username
+       FROM reviews r JOIN users u ON u.id = r.user_id
+       WHERE r.album_mbid = ? ORDER BY r.updated_at DESC LIMIT ? OFFSET ?`
+    )
+    .all(albumMbid, limit, offset);
+}
+
+export function countReviewsForAlbum(albumMbid) {
+  return db.prepare('SELECT COUNT(*) as n FROM reviews WHERE album_mbid = ?').get(albumMbid).n;
 }
 
 export function sitemapAlbums() {
