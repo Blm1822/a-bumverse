@@ -7,9 +7,11 @@ const genreEl = document.getElementById('genre');
 const artistsPageEl = document.getElementById('artists-page');
 const recentPageEl = document.getElementById('recent-page');
 const trendingPageEl = document.getElementById('trending-page');
+const topRatedPageEl = document.getElementById('top-rated-page');
 const navArtists = document.getElementById('nav-artists');
 const navRecent = document.getElementById('nav-recent');
 const navTrending = document.getElementById('nav-trending');
+const navTopRated = document.getElementById('nav-top-rated');
 const form = document.getElementById('search-form');
 const input = document.getElementById('search-input');
 const statsEl = document.getElementById('stats');
@@ -209,7 +211,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl];
 }
 
 function showOnly(el) {
@@ -229,6 +231,7 @@ function route() {
   navArtists.classList.toggle('active', parts[0] === 'artists');
   navRecent.classList.toggle('active', parts[0] === 'recent');
   navTrending.classList.toggle('active', parts[0] === 'trending');
+  navTopRated.classList.toggle('active', parts[0] === 'top-rated');
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
   if (parts[0] === 'decade' && parts[1]) return renderDecade(parts[1]);
@@ -239,6 +242,7 @@ function route() {
   if (parts[0] === 'artists' && !parts[1]) return renderArtistsPage();
   if (parts[0] === 'recent' && !parts[1]) return renderRecentPage();
   if (parts[0] === 'trending' && !parts[1]) return renderTrendingPage();
+  if (parts[0] === 'top-rated' && !parts[1]) return renderTopRatedPage();
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -510,9 +514,13 @@ async function renderTrendingPage() {
     const items = data.results || [];
     trendingPageEl.innerHTML = `
       <h2 class="section-title">Trending this week</h2>
-      <p class="hint">The most-viewed albums on Albumverse over the last 7 days.</p>
+      <p class="hint">The most-viewed albums on Albumverse over the last 7 days. Also see <a href="/top-rated" id="see-top-rated-link">top rated albums</a>.</p>
       ${items.length ? '<div class="chart-list" id="chart-list"></div>' : '<p class="empty">Not enough traffic yet this week to rank anything - check back soon.</p>'}
     `;
+    document.getElementById('see-top-rated-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      navigate('/top-rated');
+    });
     const list = document.getElementById('chart-list');
     if (!list) return;
     items.forEach((r, i) => {
@@ -546,6 +554,59 @@ async function renderTrendingPage() {
     });
   } catch (err) {
     trendingPageEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function renderTopRatedPage() {
+  showOnly(topRatedPageEl);
+  setTitle('Top rated albums');
+  topRatedPageEl.innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    const res = await fetch('/api/top-rated');
+    const data = await res.json();
+    const items = data.results || [];
+    topRatedPageEl.innerHTML = `
+      <h2 class="section-title">Top rated albums</h2>
+      <p class="hint">The highest user-rated albums on Albumverse (needs a few ratings to qualify). Also see <a href="/trending" id="see-trending-link">what's trending this week</a>.</p>
+      ${items.length ? '<div class="chart-list" id="chart-list"></div>' : '<p class="empty">Not enough ratings yet to rank anything - be the first to rate an album!</p>'}
+    `;
+    document.getElementById('see-trending-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      navigate('/trending');
+    });
+    const list = document.getElementById('chart-list');
+    if (!list) return;
+    items.forEach((r, i) => {
+      const row = document.createElement('div');
+      row.className = 'chart-row';
+
+      const rank = document.createElement('div');
+      rank.className = 'chart-rank';
+      rank.textContent = i + 1;
+      row.appendChild(rank);
+
+      const thumb = posterWrap(r.coverArtUrl, r.title);
+      thumb.classList.add('chart-thumb');
+      row.appendChild(thumb);
+
+      const info = document.createElement('div');
+      info.className = 'chart-info';
+      info.innerHTML = `
+        <div class="chart-title">${escapeHtml(r.title)}</div>
+        <div class="chart-meta">${escapeHtml(r.artist || '')}${r.date ? ' · ' + escapeHtml(r.date.slice(0, 4)) : ''}</div>
+      `;
+      row.appendChild(info);
+
+      const rating = document.createElement('div');
+      rating.className = 'chart-views';
+      rating.textContent = `${r.average}/10 (${r.count} rating${r.count === 1 ? '' : 's'})`;
+      row.appendChild(rating);
+
+      row.addEventListener('click', () => navigate(`/album/${r.id}`));
+      list.appendChild(row);
+    });
+  } catch (err) {
+    topRatedPageEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -1048,7 +1109,7 @@ homeLink.addEventListener('click', (e) => {
   navigate('/');
 });
 
-for (const link of [navArtists, navRecent, navTrending]) {
+for (const link of [navArtists, navRecent, navTrending, navTopRated]) {
   link.addEventListener('click', (e) => {
     e.preventDefault();
     navigate(link.getAttribute('href'));

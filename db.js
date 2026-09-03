@@ -742,6 +742,27 @@ export function trendingAlbums(limit = 20) {
     .all(limit);
 }
 
+// Requires a minimum number of ratings before an album can appear, same idea
+// as IMDb's Top 250 vote floor - without it, a single 10/10 would sit at #1
+// forever ahead of albums with a real, larger consensus behind them. Low for
+// now since ratings just launched; worth raising once volume grows.
+const MIN_RATINGS_FOR_CHART = 3;
+
+export function topRatedAlbums(limit = 20) {
+  return db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl,
+       ROUND(AVG(r.rating), 1) as average, COUNT(r.id) as count
+       FROM reviews r
+       JOIN albums al ON al.mbid = r.album_mbid
+       GROUP BY al.mbid
+       HAVING COUNT(r.id) >= ?
+       ORDER BY average DESC, count DESC
+       LIMIT ?`
+    )
+    .all(MIN_RATINGS_FOR_CHART, limit);
+}
+
 export function trendingSearches(limit = 8) {
   return db
     .prepare(
