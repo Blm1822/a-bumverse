@@ -497,6 +497,27 @@ export function countReviewsForAlbum(albumMbid) {
   return db.prepare('SELECT COUNT(*) as n FROM reviews WHERE album_mbid = ?').get(albumMbid).n;
 }
 
+// Separate from getUserByUsername (which returns password_hash for login
+// verification) so a public profile lookup can never accidentally leak it.
+export function getPublicUser(username) {
+  return db.prepare('SELECT id, username, created_at as createdAt FROM users WHERE username = ? COLLATE NOCASE').get(username);
+}
+
+export function getReviewsByUser(userId, limit = 20, offset = 0) {
+  return db
+    .prepare(
+      `SELECT r.rating as rating, r.body as body, r.updated_at as updatedAt,
+       al.mbid as albumId, al.title as albumTitle, al.artist_credit as albumArtist, al.cover_art_url as albumCoverArtUrl
+       FROM reviews r JOIN albums al ON al.mbid = r.album_mbid
+       WHERE r.user_id = ? ORDER BY r.updated_at DESC LIMIT ? OFFSET ?`
+    )
+    .all(userId, limit, offset);
+}
+
+export function countReviewsByUser(userId) {
+  return db.prepare('SELECT COUNT(*) as n FROM reviews WHERE user_id = ?').get(userId).n;
+}
+
 export function sitemapAlbums() {
   return db.prepare("SELECT mbid as id, substr(added_at, 1, 10) as lastmod FROM albums").all();
 }

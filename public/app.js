@@ -2,6 +2,7 @@ const homeView = document.getElementById('home-view');
 const resultsEl = document.getElementById('results');
 const artistEl = document.getElementById('artist');
 const albumEl = document.getElementById('album');
+const profilePageEl = document.getElementById('profile-page');
 const decadeEl = document.getElementById('decade');
 const genreEl = document.getElementById('genre');
 const artistsPageEl = document.getElementById('artists-page');
@@ -47,9 +48,13 @@ async function loadCurrentUser() {
 function renderAuthNav() {
   if (currentUser && currentUser.username) {
     authNavEl.innerHTML = `
-      <span class="auth-username">${escapeHtml(currentUser.username)}</span>
+      <a href="/user/${encodeURIComponent(currentUser.username)}" class="auth-username-link" id="auth-profile-link">${escapeHtml(currentUser.username)}</a>
       <button type="button" class="auth-link" id="auth-signout-btn">Sign out</button>
     `;
+    document.getElementById('auth-profile-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      navigate(e.currentTarget.getAttribute('href'));
+    });
     document.getElementById('auth-signout-btn').addEventListener('click', async () => {
       await fetch('/api/auth/logout', { method: 'POST' });
       currentUser = null;
@@ -211,7 +216,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, profilePageEl];
 }
 
 function showOnly(el) {
@@ -234,6 +239,7 @@ function route() {
   navTopRated.classList.toggle('active', parts[0] === 'top-rated');
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
+  if (parts[0] === 'user' && parts[1]) return renderProfilePage(parts[1]);
   if (parts[0] === 'decade' && parts[1]) return renderDecade(parts[1]);
   if (parts[0] === 'genre') {
     const g = new URLSearchParams(location.search).get('name');
@@ -992,13 +998,81 @@ function reviewRow(r) {
   row.className = 'review-row';
   row.innerHTML = `
     <div class="review-head">
-      <span class="review-user">${escapeHtml(r.username)}</span>
+      <a href="/user/${encodeURIComponent(r.username)}" class="review-user-link">${escapeHtml(r.username)}</a>
       <span class="review-rating">${r.rating}/10</span>
       <span class="review-date">${escapeHtml((r.updatedAt || '').slice(0, 10))}</span>
     </div>
     ${r.body ? `<p class="review-body">${escapeHtml(r.body)}</p>` : ''}
   `;
+  row.querySelector('.review-user-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    navigate(e.currentTarget.getAttribute('href'));
+  });
   return row;
+}
+
+// Reuses the chart-row/chart-thumb layout the Trending/Top Rated pages use
+// (thumbnail + info + a right-aligned figure), just with the album's own
+// rating/review text instead of a play/view count - same shape of data.
+function profileReviewRow(r) {
+  const row = document.createElement('div');
+  row.className = 'chart-row profile-review-row';
+
+  const thumb = posterWrap(r.albumCoverArtUrl, r.albumTitle);
+  thumb.classList.add('chart-thumb');
+  row.appendChild(thumb);
+
+  const info = document.createElement('div');
+  info.className = 'chart-info';
+  info.innerHTML = `
+    <div class="chart-title">${escapeHtml(r.albumTitle)}</div>
+    <div class="chart-meta">${escapeHtml(r.albumArtist || '')}</div>
+    ${r.body ? `<p class="review-body">${escapeHtml(r.body)}</p>` : ''}
+  `;
+  row.appendChild(info);
+
+  const rating = document.createElement('div');
+  rating.className = 'chart-views';
+  rating.innerHTML = `${r.rating}/10<br /><span class="review-date">${escapeHtml((r.updatedAt || '').slice(0, 10))}</span>`;
+  row.appendChild(rating);
+
+  row.addEventListener('click', () => navigate(`/album/${r.albumId}`));
+  return row;
+}
+
+async function renderProfilePage(username) {
+  showOnly(profilePageEl);
+  profilePageEl.innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    const res = await fetch(`/api/user/${encodeURIComponent(username)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    setTitle(`${data.username}'s reviews`);
+
+    profilePageEl.innerHTML = `
+      <button class="back-btn" id="profile-back-btn">&larr; Back</button>
+      <h2 class="section-title">${escapeHtml(data.username)}</h2>
+      <p class="hint">Joined ${escapeHtml((data.createdAt || '').slice(0, 10))}</p>
+      <div id="profile-reviews-list"></div>
+      <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="profile-load-more">Load more</button></div>
+    `;
+    document.getElementById('profile-back-btn').addEventListener('click', () => history.back());
+
+    const list = document.getElementById('profile-reviews-list');
+    const button = document.getElementById('profile-load-more');
+    const url = `/api/user/${encodeURIComponent(username)}/reviews`;
+    const first = await loadPage({ url, grid: list, button, offset: 0, cardFn: profileReviewRow });
+    if (!first.offset) list.innerHTML = '<p class="empty">No reviews yet.</p>';
+    let offset = first.offset;
+    button.addEventListener('click', async () => {
+      const next = await loadPage({ url, grid: list, button, offset, cardFn: profileReviewRow });
+      offset = next.offset;
+    });
+  } catch (err) {
+    profilePageEl.innerHTML = err.message === 'User not found.'
+      ? '<p class="error">User not found.</p>'
+      : `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
 }
 
 async function loadReviews(albumId, offset = 0) {

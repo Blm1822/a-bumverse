@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -193,6 +193,22 @@ app.post('/api/auth/logout', (req, res) => {
 
 app.get('/api/auth/me', (req, res) => {
   res.json(req.user || null);
+});
+
+// Public profile - anyone's rating history, no auth required to view it
+// (only to post one). Username, not id, in the URL since that's what's
+// human-shareable and what review rows link to.
+app.get('/api/user/:username', (req, res) => {
+  const user = getPublicUser(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found.' });
+  res.json(user);
+});
+
+app.get('/api/user/:username/reviews', (req, res) => {
+  const user = getPublicUser(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found.' });
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  res.json({ results: getReviewsByUser(user.id, 20, offset), total: countReviewsByUser(user.id) });
 });
 
 // Fast, local-only, no MusicBrainz fallback - unlike /api/search this is
@@ -537,6 +553,16 @@ app.get('/artist/:mbid', (req, res) => {
   if (!artist) return res.sendFile(indexHtmlPath);
   const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
   res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl, jsonLd: artistJsonLd(req, artist) }));
+});
+
+app.get('/user/:username', (req, res) => {
+  logView(req, null);
+  const user = USERNAME_RE.test(req.params.username) ? getPublicUser(req.params.username) : null;
+  if (!user) return res.sendFile(indexHtmlPath);
+  res.send(renderIndexWithMeta(req, {
+    title: `${user.username}'s reviews`,
+    description: `${user.username}'s ratings and reviews on Albumverse.`,
+  }));
 });
 
 // Real server-side redirect, not a client-side SPA route - works with no
