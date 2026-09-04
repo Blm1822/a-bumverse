@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
@@ -480,6 +480,52 @@ app.get('/api/in-memoriam/all', (req, res) => {
   res.json({ results: inMemoriam(limit, offset), total: countInMemoriam() });
 });
 
+// --- Watchlist ("My Albums") - a signed-in visitor's private saved list of
+// albums and artists. Private by design (unlike reviews, never shown on a
+// public profile) - it's a personal "check this out later" list, not a
+// public statement the way a rating is. ---
+
+const WATCHLIST_ITEM_TYPES = new Set(['album', 'artist']);
+function validWatchlistItem(itemType, itemId) {
+  return WATCHLIST_ITEM_TYPES.has(itemType) && MBID_RE.test(itemId || '');
+}
+
+app.post('/api/watchlist', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in required.' });
+  const { itemType, itemId } = req.body || {};
+  if (!validWatchlistItem(itemType, itemId)) return res.status(400).json({ error: 'Invalid item.' });
+  const exists = itemType === 'album' ? albumExists(itemId) : !!getArtistLocal(itemId);
+  if (!exists) return res.status(404).json({ error: 'Not found.' });
+  addToWatchlist(req.user.id, itemType, itemId);
+  res.json({ ok: true });
+});
+
+app.delete('/api/watchlist', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in required.' });
+  const { itemType, itemId } = req.body || {};
+  if (!validWatchlistItem(itemType, itemId)) return res.status(400).json({ error: 'Invalid item.' });
+  removeFromWatchlist(req.user.id, itemType, itemId);
+  res.json({ ok: true });
+});
+
+app.get('/api/watchlist/status', (req, res) => {
+  const { itemType, itemId } = req.query;
+  if (!req.user || !validWatchlistItem(itemType, itemId)) return res.json({ saved: false });
+  res.json({ saved: isInWatchlist(req.user.id, itemType, String(itemId)) });
+});
+
+app.get('/api/watchlist/albums', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in required.' });
+  const { limit, offset } = pageParams(req);
+  res.json({ results: getWatchlistAlbums(req.user.id, limit, offset), total: countWatchlistAlbums(req.user.id) });
+});
+
+app.get('/api/watchlist/artists', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in required.' });
+  const { limit, offset } = pageParams(req);
+  res.json({ results: getWatchlistArtists(req.user.id, limit, offset), total: countWatchlistArtists(req.user.id) });
+});
+
 app.get('/api/decades', (req, res) => {
   res.json({ results: decadeCounts() });
 });
@@ -746,6 +792,14 @@ app.get('/poster', (req, res) => {
   res.send(renderIndexWithMeta(req, {
     title: 'Concert Poster Maker',
     description: 'Turn a real show you were at into a shareable poster - artist, date, venue, and the actual setlist.',
+  }));
+});
+
+app.get('/my-albums', (req, res) => {
+  logView(req, null);
+  res.send(renderIndexWithMeta(req, {
+    title: 'My Albums',
+    description: 'Your saved albums and artists on Albumverse.',
   }));
 });
 

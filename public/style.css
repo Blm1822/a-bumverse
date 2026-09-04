@@ -491,6 +491,20 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 .rating-outof { font-size: 13px; color: var(--muted); }
 .rating-count { font-size: 13px; color: var(--muted); margin-left: 4px; }
 .rating-none { font-size: 13px; color: var(--muted); font-style: italic; }
+.watchlist-toggle-wrap { margin-top: 10px; }
+.watchlist-toggle-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 999px;
+}
+.watchlist-toggle-btn:hover { background: var(--accent); color: #16142a; }
+.watchlist-toggle-btn.saved { background: var(--accent); color: #16142a; }
+.watchlist-toggle-btn.saved:hover { background: transparent; color: var(--accent); }
+.watchlist-toggle-btn:disabled { opacity: 0.6; cursor: default; }
 
 #reviews-section { margin-top: 32px; }
 .rate-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }

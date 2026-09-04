@@ -12,6 +12,7 @@ const topRatedPageEl = document.getElementById('top-rated-page');
 const onThisDayPageEl = document.getElementById('on-this-day-page');
 const inMemoriamPageEl = document.getElementById('in-memoriam-page');
 const posterPageEl = document.getElementById('poster-page');
+const myAlbumsPageEl = document.getElementById('my-albums-page');
 const navArtists = document.getElementById('nav-artists');
 const navRecent = document.getElementById('nav-recent');
 const navTrending = document.getElementById('nav-trending');
@@ -59,13 +60,16 @@ const currentUserPromise = fetch('/api/auth/me')
 function renderAuthNav() {
   if (currentUser && currentUser.username) {
     authNavEl.innerHTML = `
+      <a href="/my-albums" class="auth-link" id="my-albums-link">My Albums</a>
       <a href="/user/${encodeURIComponent(currentUser.username)}" class="auth-username-link" id="auth-profile-link">${escapeHtml(currentUser.username)}</a>
       <button type="button" class="auth-link" id="auth-signout-btn">Sign out</button>
     `;
-    document.getElementById('auth-profile-link').addEventListener('click', (e) => {
-      e.preventDefault();
-      navigate(e.currentTarget.getAttribute('href'));
-    });
+    for (const id of ['my-albums-link', 'auth-profile-link']) {
+      document.getElementById(id).addEventListener('click', (e) => {
+        e.preventDefault();
+        navigate(e.currentTarget.getAttribute('href'));
+      });
+    }
     document.getElementById('auth-signout-btn').addEventListener('click', async () => {
       await fetch('/api/auth/logout', { method: 'POST' });
       currentUser = null;
@@ -374,7 +378,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, inMemoriamPageEl, posterPageEl, profilePageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, inMemoriamPageEl, posterPageEl, myAlbumsPageEl, profilePageEl];
 }
 
 function showOnly(el) {
@@ -412,6 +416,7 @@ function route() {
   if (parts[0] === 'on-this-day' && !parts[1]) return renderOnThisDayPage();
   if (parts[0] === 'in-memoriam' && !parts[1]) return renderInMemoriamPage();
   if (parts[0] === 'poster' && !parts[1]) return renderPosterPage(new URLSearchParams(location.search).get('artist'));
+  if (parts[0] === 'my-albums' && !parts[1]) return renderMyAlbumsPage();
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -1294,6 +1299,7 @@ async function renderArtist(id) {
           <h2>${escapeHtml(data.name)}</h2>
           ${data.disambiguation ? `<div class="sub">${escapeHtml(data.disambiguation)}</div>` : ''}
           ${data.type === 'Person' && (data.bornDate || data.diedDate) ? `<div class="sub">${escapeHtml(lifespanLabel(data))}</div>` : ''}
+          <div class="watchlist-toggle-wrap" id="artist-watchlist-toggle"></div>
           ${data.bio ? `<p class="bio">${escapeHtml(data.bio)}</p>` : ''}
           <div class="artist-links">
             ${data.wikiUrl ? `<a class="wiki-link" href="${data.wikiUrl}" target="_blank" rel="noopener">via Wikipedia</a>` : ''}
@@ -1331,6 +1337,7 @@ async function renderArtist(id) {
     wireShareLinks(artistEl);
     loadSimilarArtists(data.id);
     loadUpcomingShows(data.id);
+    loadWatchlistToggle(document.getElementById('artist-watchlist-toggle'), 'artist', data.id);
   } catch (err) {
     artistEl.innerHTML = `<p class="error">Failed to load artist: ${escapeHtml(err.message)}</p>`;
   }
@@ -1430,6 +1437,7 @@ async function renderAlbum(id) {
           <div class="sub">${artistLinks} · ${escapeHtml(data.type)}${data.date ? ' · ' + escapeHtml(data.date) : ''}</div>
           ${data.label ? `<div class="sub">Label: ${escapeHtml(data.label)}</div>` : ''}
           <div class="rating-summary" id="rating-summary">${renderRatingSummaryHtml(data.rating)}</div>
+          <div class="watchlist-toggle-wrap" id="album-watchlist-toggle"></div>
           ${(data.genres || []).length ? `<div class="genre-tags">${data.genres.map((g) => `<a href="/genre?name=${encodeURIComponent(g)}" class="genre-tag" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</a>`).join('')}</div>` : ''}
           <div class="listen-links">
             ${listenLinks(data.artist, data.title).map((l) => `<a href="${l.url}" class="listen-link" target="_blank" rel="noopener">Listen on ${l.name} &rarr;</a>`).join('')}
@@ -1476,6 +1484,7 @@ async function renderAlbum(id) {
     wireShareLinks(albumEl);
     loadSimilarAlbums(data.id);
     loadReviews(data.id);
+    loadWatchlistToggle(document.getElementById('album-watchlist-toggle'), 'album', data.id);
   } catch (err) {
     albumEl.innerHTML = `<p class="error">Failed to load album: ${escapeHtml(err.message)}</p>`;
   }
@@ -1667,6 +1676,136 @@ function recentReviewRow(r) {
 
   row.addEventListener('click', () => navigate(`/album/${r.albumId}`));
   return row;
+}
+
+// --- Watchlist ("My Albums") toggle button, shared by album and artist
+// pages. Takes the container element itself (not an id string) and scopes
+// every lookup to it via querySelector, same reasoning as wireShareLinks -
+// showOnly() hides a previous page's DOM without removing it, so a bare
+// getElementById could silently grab a stale hidden page's button if both
+// pages happened to reuse the same id. ---
+
+function renderWatchlistToggleButton(container, itemType, itemId, saved) {
+  container.innerHTML = `<button type="button" class="watchlist-toggle-btn${saved ? ' saved' : ''}">${saved ? '✓ Saved to My Albums' : '+ Save to My Albums'}</button>`;
+  const btn = container.querySelector('.watchlist-toggle-btn');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/watchlist', {
+        method: saved ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemType, itemId }),
+      });
+      if (res.ok) renderWatchlistToggleButton(container, itemType, itemId, !saved);
+      else btn.disabled = false;
+    } catch {
+      btn.disabled = false;
+    }
+  });
+}
+
+async function loadWatchlistToggle(container, itemType, itemId) {
+  await currentUserPromise;
+  if (!currentUser) {
+    container.innerHTML = '<button type="button" class="watchlist-toggle-btn">+ Save to My Albums</button>';
+    container.querySelector('.watchlist-toggle-btn').addEventListener('click', () => openAuthModal('login'));
+    return;
+  }
+  try {
+    const res = await fetch(`/api/watchlist/status?itemType=${itemType}&itemId=${encodeURIComponent(itemId)}`);
+    const data = await res.json();
+    renderWatchlistToggleButton(container, itemType, itemId, !!data.saved);
+  } catch {
+    // leave it empty rather than show a button that doesn't actually work
+  }
+}
+
+async function loadMyAlbumsSection() {
+  const body = document.getElementById('ma-albums-body');
+  const url = '/api/watchlist/albums';
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      body.innerHTML = '<p class="empty">No saved albums yet - hit "Save to My Albums" on any album page.</p>';
+      return;
+    }
+    body.innerHTML = `
+      <div class="grid" id="ma-albums-grid"></div>
+      <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="ma-albums-load-more">Load more</button></div>
+    `;
+    const grid = document.getElementById('ma-albums-grid');
+    for (const al of items) grid.appendChild(albumCard(al));
+    let offset = items.length;
+    const total = data.total || 0;
+    const button = document.getElementById('ma-albums-load-more');
+    button.parentElement.classList.toggle('hidden', offset >= total);
+    button.addEventListener('click', async () => {
+      const next = await loadPage({ url, grid, button, offset, cardFn: albumCard });
+      offset = next.offset;
+    });
+  } catch (err) {
+    body.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function loadMyArtistsSection() {
+  const body = document.getElementById('ma-artists-body');
+  const url = '/api/watchlist/artists';
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      body.innerHTML = '<p class="empty">No saved artists yet - hit "Save to My Albums" on any artist page.</p>';
+      return;
+    }
+    body.innerHTML = `
+      <div class="grid" id="ma-artists-grid"></div>
+      <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="ma-artists-load-more">Load more</button></div>
+    `;
+    const grid = document.getElementById('ma-artists-grid');
+    for (const a of items) grid.appendChild(artistCard(a));
+    let offset = items.length;
+    const total = data.total || 0;
+    const button = document.getElementById('ma-artists-load-more');
+    button.parentElement.classList.toggle('hidden', offset >= total);
+    button.addEventListener('click', async () => {
+      const next = await loadPage({ url, grid, button, offset, cardFn: artistCard });
+      offset = next.offset;
+    });
+  } catch (err) {
+    body.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function renderMyAlbumsPage() {
+  showOnly(myAlbumsPageEl);
+  setTitle('My Albums');
+  myAlbumsPageEl.innerHTML = '<div class="loading">Loading…</div>';
+  await currentUserPromise;
+  if (!currentUser) {
+    myAlbumsPageEl.innerHTML = `
+      <button class="back-btn" id="ma-back-btn">&larr; Back</button>
+      <h2 class="section-title">My Albums</h2>
+      <p class="empty">Sign in to save albums and artists to your own list.</p>
+    `;
+    document.getElementById('ma-back-btn').addEventListener('click', () => history.back());
+    return;
+  }
+
+  myAlbumsPageEl.innerHTML = `
+    <button class="back-btn" id="ma-back-btn">&larr; Back</button>
+    <h2 class="section-title">My Albums</h2>
+    <p class="hint">Your saved albums and artists - private to you.</p>
+    <h2 class="section-title">Albums</h2>
+    <div id="ma-albums-body"><div class="loading">Loading…</div></div>
+    <h2 class="section-title">Artists</h2>
+    <div id="ma-artists-body"><div class="loading">Loading…</div></div>
+  `;
+  document.getElementById('ma-back-btn').addEventListener('click', () => history.back());
+  await Promise.all([loadMyAlbumsSection(), loadMyArtistsSection()]);
 }
 
 async function renderProfilePage(username) {

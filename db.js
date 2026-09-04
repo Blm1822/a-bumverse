@@ -124,6 +124,19 @@ CREATE TABLE IF NOT EXISTS reviews (
   UNIQUE (user_id, album_mbid)
 );
 
+-- "My Albums": a signed-in visitor's private saved list. item_id is an
+-- album or artist mbid depending on item_type - no foreign key to either
+-- table (the type varies), but the app never deletes catalog rows, so an
+-- orphaned entry isn't a real-world concern.
+CREATE TABLE IF NOT EXISTS watchlist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL CHECK (item_type IN ('album', 'artist')),
+  item_id TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_id, item_type, item_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
@@ -136,6 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_album_credits_album ON album_credits(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_album ON reviews(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
+CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id);
 `);
 
 // Migration for DBs created before added_at existed.
@@ -650,6 +664,56 @@ export function inMemoriam(limit = 12, offset = 0) {
 
 export function countInMemoriam() {
   return db.prepare("SELECT COUNT(*) as n FROM artists WHERE type = 'Person' AND died_date IS NOT NULL").get().n;
+}
+
+// --- Watchlist ("My Albums") ---
+
+export function addToWatchlist(userId, itemType, itemId) {
+  db.prepare(
+    `INSERT INTO watchlist (user_id, item_type, item_id) VALUES (?, ?, ?)
+     ON CONFLICT(user_id, item_type, item_id) DO NOTHING`
+  ).run(userId, itemType, itemId);
+}
+
+export function removeFromWatchlist(userId, itemType, itemId) {
+  db.prepare('DELETE FROM watchlist WHERE user_id = ? AND item_type = ? AND item_id = ?').run(userId, itemType, itemId);
+}
+
+export function isInWatchlist(userId, itemType, itemId) {
+  return !!db.prepare('SELECT 1 FROM watchlist WHERE user_id = ? AND item_type = ? AND item_id = ?').get(userId, itemType, itemId);
+}
+
+export function getWatchlistAlbums(userId, limit = 60, offset = 0) {
+  return db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+       FROM watchlist w JOIN albums al ON al.mbid = w.item_id
+       WHERE w.user_id = ? AND w.item_type = 'album'
+       ORDER BY w.created_at DESC, w.id DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(userId, limit, offset);
+}
+
+export function countWatchlistAlbums(userId) {
+  return db.prepare("SELECT COUNT(*) as n FROM watchlist WHERE user_id = ? AND item_type = 'album'").get(userId).n;
+}
+
+export function getWatchlistArtists(userId, limit = 60, offset = 0) {
+  return db
+    .prepare(
+      `SELECT a.mbid as id, a.name, a.disambiguation, ${ARTIST_IMAGE_SQL} as imageUrl,
+       (SELECT COUNT(*) FROM album_artists aa WHERE aa.artist_mbid = a.mbid) as albumCount
+       FROM watchlist w JOIN artists a ON a.mbid = w.item_id
+       WHERE w.user_id = ? AND w.item_type = 'artist'
+       ORDER BY w.created_at DESC, w.id DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(userId, limit, offset);
+}
+
+export function countWatchlistArtists(userId) {
+  return db.prepare("SELECT COUNT(*) as n FROM watchlist WHERE user_id = ? AND item_type = 'artist'").get(userId).n;
 }
 
 export function sitemapAlbums() {
