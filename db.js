@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  recovery_code_hash TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -148,6 +149,14 @@ if (!albumColumns.includes('added_at')) {
 const artistColumns = db.prepare('PRAGMA table_info(artists)').all().map((c) => c.name);
 for (const col of ['bio', 'wiki_image_url', 'wiki_url']) {
   if (!artistColumns.includes(col)) db.exec(`ALTER TABLE artists ADD COLUMN ${col} TEXT;`);
+}
+
+// Migration for DBs created before password-reset recovery codes existed -
+// those users simply have none until they sign in and generate one (see
+// setRecoveryCodeHash), same "NULL means never set up" pattern as bio above.
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+if (!userColumns.includes('recovery_code_hash')) {
+  db.exec('ALTER TABLE users ADD COLUMN recovery_code_hash TEXT;');
 }
 
 // Search engines, social-share unfurlers, SEO crawlers, and scripts - "bot"
@@ -426,8 +435,10 @@ export function getAlbumLocal(mbid) {
 
 // --- Accounts, sessions, ratings & reviews ---
 
-export function createUser(username, passwordHash) {
-  const result = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(username, passwordHash);
+export function createUser(username, passwordHash, recoveryCodeHash) {
+  const result = db.prepare(
+    'INSERT INTO users (username, password_hash, recovery_code_hash) VALUES (?, ?, ?)'
+  ).run(username, passwordHash, recoveryCodeHash);
   return Number(result.lastInsertRowid);
 }
 
@@ -436,7 +447,22 @@ export function createUser(username, passwordHash) {
 // would otherwise miss - sign-up uniqueness checks and login both go through
 // this function, so both stay consistent.
 export function getUserByUsername(username) {
-  return db.prepare('SELECT id, username, password_hash FROM users WHERE username = ? COLLATE NOCASE').get(username);
+  return db.prepare('SELECT id, username, password_hash, recovery_code_hash FROM users WHERE username = ? COLLATE NOCASE').get(username);
+}
+
+export function updatePasswordHash(userId, passwordHash) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
+}
+
+export function setRecoveryCodeHash(userId, recoveryCodeHash) {
+  db.prepare('UPDATE users SET recovery_code_hash = ? WHERE id = ?').run(recoveryCodeHash, userId);
+}
+
+// Reset (and, more generally, any credential change) should kill every
+// other session logged in as this user - otherwise a stolen session cookie
+// would survive a password reset meant to lock it out.
+export function deleteSessionsForUser(userId) {
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
 }
 
 export function createSession(userId, token, ttlMs) {

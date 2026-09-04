@@ -415,6 +415,25 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 }
 .auth-switch:hover { filter: none; color: var(--accent); }
 .auth-error { color: #ff6b6b; font-size: 13px; margin: -6px 0 14px; }
+.profile-action-link { display: block; margin: 4px 0 20px; }
+
+.auth-recovery-hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0; }
+.recovery-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+  margin: 14px 0;
+  user-select: all;
+  word-break: break-all;
+}
+.recovery-continue-wrap { margin-top: 14px; }
 
 .rating-summary { display: flex; align-items: baseline; gap: 4px; margin-top: 10px; }
 .rating-score { font-size: 22px; font-weight: 800; color: var(--accent); }

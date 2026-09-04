@@ -5,11 +5,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
-import { hashPassword, verifyPassword, generateSessionToken } from './auth.js';
+import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -140,13 +140,17 @@ app.use((req, res, next) => {
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 
+function validatePassword(password) {
+  if (!password || password.length < 8) return 'Password must be at least 8 characters.';
+  if (password.length > 200) return 'Password is too long.';
+  return null;
+}
+
 function validateSignup(username, password) {
   if (!USERNAME_RE.test(username || '')) {
     return 'Username must be 3-20 characters: letters, numbers, underscore only.';
   }
-  if (!password || password.length < 8) return 'Password must be at least 8 characters.';
-  if (password.length > 200) return 'Password is too long.';
-  return null;
+  return validatePassword(password);
 }
 
 // Tighter than the general apiLimiter (which is really about not starving
@@ -165,11 +169,15 @@ app.post('/api/auth/signup', authLimiter, (req, res) => {
   if (error) return res.status(400).json({ error });
   if (getUserByUsername(username)) return res.status(409).json({ error: 'That username is already taken.' });
 
-  const userId = createUser(username, hashPassword(password));
+  const recoveryCode = generateRecoveryCode();
+  const userId = createUser(username, hashPassword(password), hashRecoveryCode(recoveryCode));
   const token = generateSessionToken();
   createSession(userId, token, SESSION_TTL_MS);
   res.cookie('av_session', token, sessionCookieOptions(req));
-  res.json({ id: userId, username });
+  // recoveryCode is only ever sent here (and on reset/regenerate below) -
+  // it's not stored anywhere retrievable, only its hash, so this is the
+  // visitor's one chance to see and save it.
+  res.json({ id: userId, username, recoveryCode });
 });
 
 app.post('/api/auth/login', authLimiter, (req, res) => {
@@ -182,6 +190,39 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   createSession(user.id, token, SESSION_TTL_MS);
   res.cookie('av_session', token, sessionCookieOptions(req));
   res.json({ id: user.id, username: user.username });
+});
+
+// No email to send a reset link through, so the recovery code from signup
+// (or the last regenerate) is the proof of ownership instead. Success
+// rotates the code (single-use, like backup 2FA codes) and signs out every
+// other session for this account, same as a "someone reset your password"
+// security posture would - deliberately doesn't set a new session cookie
+// itself, so a recovered account still has to sign in explicitly afterward.
+app.post('/api/auth/reset-password', authLimiter, (req, res) => {
+  const { username, recoveryCode, newPassword } = req.body || {};
+  const error = validatePassword(newPassword);
+  if (error) return res.status(400).json({ error });
+
+  const user = getUserByUsername(username || '');
+  if (!user || !verifyRecoveryCode(recoveryCode || '', user.recovery_code_hash)) {
+    return res.status(401).json({ error: 'Invalid username or recovery code.' });
+  }
+
+  updatePasswordHash(user.id, hashPassword(newPassword));
+  deleteSessionsForUser(user.id);
+  const newRecoveryCode = generateRecoveryCode();
+  setRecoveryCodeHash(user.id, hashRecoveryCode(newRecoveryCode));
+  res.json({ ok: true, recoveryCode: newRecoveryCode });
+});
+
+// Lets an already-signed-in visitor get a fresh code - either because they
+// lost the original, or (for accounts created before recovery codes
+// existed) because they never had one to begin with.
+app.post('/api/auth/recovery-code/regenerate', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in required.' });
+  const recoveryCode = generateRecoveryCode();
+  setRecoveryCodeHash(req.user.id, hashRecoveryCode(recoveryCode));
+  res.json({ recoveryCode });
 });
 
 app.post('/api/auth/logout', (req, res) => {

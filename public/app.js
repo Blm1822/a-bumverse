@@ -35,15 +35,21 @@ const configPromise = fetch('/api/config').then((r) => r.json()).catch(() => ({}
 
 let currentUser = null;
 
-async function loadCurrentUser() {
-  try {
-    const res = await fetch('/api/auth/me');
-    currentUser = await res.json();
-  } catch {
-    currentUser = null;
-  }
-  renderAuthNav();
-}
+// Fired once at load (same pattern as configPromise above), and awaited
+// anywhere an initial render needs to know sign-in state before it can
+// decide what to show (e.g. the rate widget, or a profile page's "is this
+// your own profile" check) - without awaiting this, that render can win a
+// race against this fetch on a fresh page load/reload and wrongly render as
+// signed-out for a signed-in visitor. Post-login/logout state changes still
+// just set currentUser directly and re-render, no re-fetch needed.
+const currentUserPromise = fetch('/api/auth/me')
+  .then((r) => r.json())
+  .catch(() => null)
+  .then((data) => {
+    currentUser = data;
+    renderAuthNav();
+    return data;
+  });
 
 function renderAuthNav() {
   if (currentUser && currentUser.username) {
@@ -72,9 +78,94 @@ function closeAuthModal() {
   authModalBody.innerHTML = '';
 }
 
-function openAuthModal(mode) {
-  renderAuthForm(mode);
+// Generic modal opener - openAuthModal(mode) is the common case (sign in/up),
+// but the recovery-code display step and the reset-password form also need
+// the same overlay/close plumbing without going through renderAuthForm.
+function showModal(renderFn) {
+  renderFn();
   authModalOverlay.classList.remove('hidden');
+}
+
+function openAuthModal(mode) {
+  showModal(() => renderAuthForm(mode));
+}
+
+// Shown once right after signup, and again after a successful reset/
+// regenerate (each of those rotates the code, so the old one on screen
+// stops working the moment a new one is issued) - this is the only time the
+// raw code is ever visible, since only its hash is stored.
+function renderRecoveryCodeStep(code, { message, continueLabel, onContinue }) {
+  authModalBody.innerHTML = `
+    <h2>Save your recovery code</h2>
+    <p class="auth-recovery-hint">${escapeHtml(message)}</p>
+    <div class="recovery-code">${escapeHtml(code)}</div>
+    <button type="button" class="auth-link" id="recovery-copy-btn">Copy code</button>
+    <div class="recovery-continue-wrap">
+      <button type="button" class="auth-submit" id="recovery-continue-btn">${escapeHtml(continueLabel)}</button>
+    </div>
+  `;
+  document.getElementById('recovery-copy-btn').addEventListener('click', async (e) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      const btn = e.currentTarget;
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch {
+      // Clipboard API unavailable - the code is still selectable/visible to copy by hand.
+    }
+  });
+  document.getElementById('recovery-continue-btn').addEventListener('click', onContinue);
+}
+
+function renderResetForm() {
+  authModalBody.innerHTML = `
+    <h2>Reset your password</h2>
+    <form id="reset-form">
+      <label class="auth-label">Username
+        <input type="text" id="reset-username" autocomplete="username" required />
+      </label>
+      <label class="auth-label">Recovery code
+        <input type="text" id="reset-code" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" required />
+      </label>
+      <label class="auth-label">New password
+        <input type="password" id="reset-password" autocomplete="new-password" required />
+      </label>
+      <p class="auth-error hidden" id="auth-error"></p>
+      <button type="submit" class="auth-submit">Reset password</button>
+    </form>
+    <button type="button" class="auth-switch" id="auth-back-to-login-btn">Back to sign in</button>
+  `;
+  document.getElementById('auth-back-to-login-btn').addEventListener('click', () => renderAuthForm('login'));
+  document.getElementById('reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('reset-username').value.trim();
+    const recoveryCode = document.getElementById('reset-code').value.trim();
+    const newPassword = document.getElementById('reset-password').value;
+    const errorEl = document.getElementById('auth-error');
+    errorEl.classList.add('hidden');
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, recoveryCode, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error || 'Could not reset your password.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      renderRecoveryCodeStep(data.recoveryCode, {
+        message: 'Your password was reset and every other signed-in session was signed out. Your recovery code was refreshed too - the old one no longer works. Save this new one somewhere safe.',
+        continueLabel: 'Continue to sign in',
+        onContinue: () => renderAuthForm('login'),
+      });
+    } catch {
+      errorEl.textContent = 'Network error - try again.';
+      errorEl.classList.remove('hidden');
+    }
+  });
 }
 
 function renderAuthForm(mode) {
@@ -91,8 +182,12 @@ function renderAuthForm(mode) {
       <p class="auth-error hidden" id="auth-error"></p>
       <button type="submit" class="auth-submit">${isLogin ? 'Sign in' : 'Create account'}</button>
     </form>
+    ${isLogin ? '<button type="button" class="auth-switch" id="auth-forgot-btn">Forgot password?</button>' : ''}
     <button type="button" class="auth-switch" id="auth-switch-btn">${isLogin ? 'Need an account? Sign up' : 'Already have an account? Sign in'}</button>
   `;
+  if (isLogin) {
+    document.getElementById('auth-forgot-btn').addEventListener('click', () => renderResetForm());
+  }
   document.getElementById('auth-switch-btn').addEventListener('click', () => renderAuthForm(isLogin ? 'signup' : 'login'));
   document.getElementById('auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -112,10 +207,18 @@ function renderAuthForm(mode) {
         errorEl.classList.remove('hidden');
         return;
       }
-      currentUser = data;
+      currentUser = { id: data.id, username: data.username };
       renderAuthNav();
-      closeAuthModal();
-      route();
+      if (!isLogin && data.recoveryCode) {
+        renderRecoveryCodeStep(data.recoveryCode, {
+          message: "This code is the only way back into your account if you forget your password - we can't recover it for you, so save it somewhere safe now.",
+          continueLabel: "I've saved it - continue",
+          onContinue: () => { closeAuthModal(); route(); },
+        });
+      } else {
+        closeAuthModal();
+        route();
+      }
     } catch {
       errorEl.textContent = 'Network error - try again.';
       errorEl.classList.remove('hidden');
@@ -1044,19 +1147,33 @@ async function renderProfilePage(username) {
   showOnly(profilePageEl);
   profilePageEl.innerHTML = '<div class="loading">Loading…</div>';
   try {
-    const res = await fetch(`/api/user/${encodeURIComponent(username)}`);
+    const [res] = await Promise.all([fetch(`/api/user/${encodeURIComponent(username)}`), currentUserPromise]);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     setTitle(`${data.username}'s reviews`);
+    const isOwnProfile = !!(currentUser && currentUser.username.toLowerCase() === data.username.toLowerCase());
 
     profilePageEl.innerHTML = `
       <button class="back-btn" id="profile-back-btn">&larr; Back</button>
       <h2 class="section-title">${escapeHtml(data.username)}</h2>
       <p class="hint">Joined ${escapeHtml((data.createdAt || '').slice(0, 10))}</p>
+      ${isOwnProfile ? '<button type="button" class="auth-link profile-action-link" id="regen-recovery-btn">Get a new account recovery code</button>' : ''}
       <div id="profile-reviews-list"></div>
       <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="profile-load-more">Load more</button></div>
     `;
     document.getElementById('profile-back-btn').addEventListener('click', () => history.back());
+    if (isOwnProfile) {
+      document.getElementById('regen-recovery-btn').addEventListener('click', async () => {
+        const res = await fetch('/api/auth/recovery-code/regenerate', { method: 'POST' });
+        const regen = await res.json();
+        if (!res.ok) return;
+        showModal(() => renderRecoveryCodeStep(regen.recoveryCode, {
+          message: "Any previous recovery code for this account no longer works. Save this new one somewhere safe - it's the only way back in if you forget your password.",
+          continueLabel: 'Done',
+          onContinue: closeAuthModal,
+        }));
+      });
+    }
 
     const list = document.getElementById('profile-reviews-list');
     const button = document.getElementById('profile-load-more');
@@ -1080,7 +1197,11 @@ async function loadReviews(albumId, offset = 0) {
   const button = document.getElementById('reviews-load-more');
   if (!list) return;
   try {
-    const res = await fetch(`/api/album/${albumId}/reviews?offset=${offset}`);
+    // currentUserPromise: renderRateWidget below decides sign-in-prompt vs.
+    // the interactive picker off the client-side currentUser variable, which
+    // needs to be resolved first or a fresh page load can race it and
+    // wrongly render the signed-out state for a signed-in visitor.
+    const [res] = await Promise.all([fetch(`/api/album/${albumId}/reviews?offset=${offset}`), currentUserPromise]);
     const data = await res.json();
     const items = data.results || [];
 
@@ -1198,7 +1319,6 @@ document.getElementById('genres-select').addEventListener('change', (e) => {
 });
 
 route();
-loadCurrentUser();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

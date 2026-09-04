@@ -23,3 +23,29 @@ export function verifyPassword(password, stored) {
 export function generateSessionToken() {
   return crypto.randomBytes(32).toString('hex');
 }
+
+// Recovery codes are the password-reset mechanism (no email infra to send a
+// reset link through) - a high-entropy random secret shown once at signup,
+// which the user has to save themselves. 80 bits of entropy is already far
+// beyond brute-forceable, so unlike passwords this is hashed with plain
+// sha256 (fast) rather than scrypt - there's no low-entropy human-chosen
+// input here for a fast hash to make guessable.
+function normalizeRecoveryCode(code) {
+  return String(code || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+}
+
+export function generateRecoveryCode() {
+  const hex = crypto.randomBytes(10).toString('hex').toUpperCase();
+  return hex.match(/.{1,5}/g).join('-');
+}
+
+export function hashRecoveryCode(code) {
+  return crypto.createHash('sha256').update(normalizeRecoveryCode(code)).digest('hex');
+}
+
+export function verifyRecoveryCode(code, storedHash) {
+  if (!storedHash) return false;
+  const candidate = Buffer.from(hashRecoveryCode(code), 'hex');
+  const stored = Buffer.from(storedHash, 'hex');
+  return candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
+}
