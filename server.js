@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -223,6 +223,28 @@ app.post('/api/auth/recovery-code/regenerate', (req, res) => {
   const recoveryCode = generateRecoveryCode();
   setRecoveryCodeHash(req.user.id, hashRecoveryCode(recoveryCode));
   res.json({ recoveryCode });
+});
+
+// The normal, "I just want to rotate my password" path - separate from
+// /api/auth/reset-password, which exists for when you're locked out
+// entirely. This one proves identity with the current password (not a
+// recovery code) and, unlike a reset, leaves the session making the change
+// signed in rather than clearing every session.
+app.post('/api/auth/change-password', authLimiter, (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in required.' });
+  const { currentPassword, newPassword } = req.body || {};
+  const error = validatePassword(newPassword);
+  if (error) return res.status(400).json({ error });
+
+  const user = getUserByUsername(req.user.username);
+  if (!verifyPassword(currentPassword || '', user.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+
+  updatePasswordHash(user.id, hashPassword(newPassword));
+  const currentToken = parseCookies(req).av_session;
+  deleteOtherSessionsForUser(user.id, currentToken);
+  res.json({ ok: true });
 });
 
 app.post('/api/auth/logout', (req, res) => {

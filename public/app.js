@@ -170,6 +170,56 @@ function renderResetForm() {
   });
 }
 
+// Opened from the signed-in visitor's own profile page - proves identity
+// with the current password rather than a recovery code, unlike
+// renderResetForm above (that one's for when you're locked out entirely).
+function renderChangePasswordForm() {
+  authModalBody.innerHTML = `
+    <h2>Change password</h2>
+    <form id="change-password-form">
+      <label class="auth-label">Current password
+        <input type="password" id="cp-current" autocomplete="current-password" required />
+      </label>
+      <label class="auth-label">New password
+        <input type="password" id="cp-new" autocomplete="new-password" required />
+      </label>
+      <p class="auth-error hidden" id="auth-error"></p>
+      <button type="submit" class="auth-submit">Change password</button>
+    </form>
+  `;
+  document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const currentPassword = document.getElementById('cp-current').value;
+    const newPassword = document.getElementById('cp-new').value;
+    const errorEl = document.getElementById('auth-error');
+    errorEl.classList.add('hidden');
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error || 'Could not change your password.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      authModalBody.innerHTML = `
+        <h2>Password changed</h2>
+        <p class="auth-recovery-hint">Your password was updated, and every other signed-in session was signed out - this one stays signed in.</p>
+        <div class="recovery-continue-wrap">
+          <button type="button" class="auth-submit" id="cp-done-btn">Done</button>
+        </div>
+      `;
+      document.getElementById('cp-done-btn').addEventListener('click', closeAuthModal);
+    } catch {
+      errorEl.textContent = 'Network error - try again.';
+      errorEl.classList.remove('hidden');
+    }
+  });
+}
+
 function renderAuthForm(mode) {
   const isLogin = mode === 'login';
   authModalBody.innerHTML = `
@@ -1275,12 +1325,16 @@ async function renderProfilePage(username) {
       <button class="back-btn" id="profile-back-btn">&larr; Back</button>
       <h2 class="section-title">${escapeHtml(data.username)}</h2>
       <p class="hint">Joined ${escapeHtml((data.createdAt || '').slice(0, 10))}</p>
-      ${isOwnProfile ? '<button type="button" class="auth-link profile-action-link" id="regen-recovery-btn">Get a new account recovery code</button>' : ''}
+      ${isOwnProfile ? `
+        <button type="button" class="auth-link profile-action-link" id="change-password-btn">Change password</button>
+        <button type="button" class="auth-link profile-action-link" id="regen-recovery-btn">Get a new account recovery code</button>
+      ` : ''}
       <div id="profile-reviews-list"></div>
       <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="profile-load-more">Load more</button></div>
     `;
     document.getElementById('profile-back-btn').addEventListener('click', () => history.back());
     if (isOwnProfile) {
+      document.getElementById('change-password-btn').addEventListener('click', () => showModal(renderChangePasswordForm));
       document.getElementById('regen-recovery-btn').addEventListener('click', async () => {
         const res = await fetch('/api/auth/recovery-code/regenerate', { method: 'POST' });
         const regen = await res.json();

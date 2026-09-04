@@ -465,6 +465,15 @@ export function deleteSessionsForUser(userId) {
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
 }
 
+// Same security posture as deleteSessionsForUser (a password change should
+// sign out anyone else logged in as this account), but a voluntary in-app
+// change - unlike a recovery reset - has one session that's clearly still
+// legitimately you: the one you're making the change from. No reason to
+// force that one back through sign-in too.
+export function deleteOtherSessionsForUser(userId, exceptToken) {
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(userId, exceptToken);
+}
+
 export function createSession(userId, token, ttlMs) {
   db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, userId, Date.now() + ttlMs);
 }
