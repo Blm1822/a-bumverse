@@ -74,6 +74,22 @@ export async function searchArtist(name) {
   return { mbid: best.id, name: best.name, disambiguation: best.disambiguation || null };
 }
 
+// type + life-span (birth/death) - core fields on the Artist resource, no
+// `inc` needed. Returns raw-ish data; it's up to the caller to decide what
+// "ended" means (a Group ending is a breakup, not a death - only a Person
+// with ended:true is someone who died).
+export async function getArtistDetail(mbid) {
+  const url = `${MB_ROOT}/artist/${mbid}?fmt=json`;
+  const artist = await mbFetch(url);
+  const lifeSpan = artist['life-span'] || {};
+  return {
+    type: artist.type || null,
+    bornDate: lifeSpan.begin || null,
+    endDate: lifeSpan.end || null,
+    ended: !!lifeSpan.ended,
+  };
+}
+
 export async function getArtistReleaseGroups(artistMbid) {
   const groups = [];
   let offset = 0;

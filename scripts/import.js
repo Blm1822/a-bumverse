@@ -19,8 +19,8 @@
 // cap, so re-running the same file later keeps adding up to N more.
 
 import fs from 'node:fs';
-import { upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, albumExists, stats } from '../db.js';
-import { searchArtist, getArtistReleaseGroups, getAlbumDetail } from '../mb.js';
+import { upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, albumExists, stats, setArtistLifespan } from '../db.js';
+import { searchArtist, getArtistReleaseGroups, getAlbumDetail, getArtistDetail } from '../mb.js';
 import { findDiscogsCredits } from '../discogs.js';
 
 const EXCLUDED_SECONDARY_TYPES = new Set([
@@ -37,6 +37,15 @@ async function importArtist(name, { includeAll, types, maxPerArtist }) {
   }
   upsertArtist(artist);
   console.log(`  matched: ${artist.name}${artist.disambiguation ? ` (${artist.disambiguation})` : ''} [${artist.mbid}]`);
+  try {
+    const lifespan = await getArtistDetail(artist.mbid);
+    const diedDate = lifespan.type === 'Person' && lifespan.ended ? lifespan.endDate : null;
+    setArtistLifespan(artist.mbid, { type: lifespan.type, bornDate: lifespan.bornDate, diedDate });
+  } catch {
+    // Leave life_span_checked_at unset - scripts/backfill-lifespan.js will
+    // pick this artist back up rather than this one artist's lookup
+    // failure derailing the rest of the import run.
+  }
 
   const releaseGroups = await getArtistReleaseGroups(artist.mbid);
   const filtered = releaseGroups.filter((rg) => {

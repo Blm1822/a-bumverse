@@ -151,6 +151,14 @@ for (const col of ['bio', 'wiki_image_url', 'wiki_url']) {
   if (!artistColumns.includes(col)) db.exec(`ALTER TABLE artists ADD COLUMN ${col} TEXT;`);
 }
 
+// Migration for DBs created before artist type/life-span existed - powers
+// "In Memoriam" (see inMemoriam below). life_span_checked_at NULL means
+// "never looked up yet", same pattern as enriched_at for albums - the
+// backfill script (scripts/backfill-lifespan.js) works through those.
+for (const col of ['type', 'born_date', 'died_date', 'life_span_checked_at']) {
+  if (!artistColumns.includes(col)) db.exec(`ALTER TABLE artists ADD COLUMN ${col} TEXT;`);
+}
+
 // Migration for DBs created before password-reset recovery codes existed -
 // those users simply have none until they sign in and generate one (see
 // setRecoveryCodeHash), same "NULL means never set up" pattern as bio above.
@@ -597,6 +605,53 @@ export function recentReviews(limit = 12) {
     .all(limit);
 }
 
+export function setArtistLifespan(mbid, { type, bornDate, diedDate } = {}) {
+  db.prepare(
+    "UPDATE artists SET type = ?, born_date = ?, died_date = ?, life_span_checked_at = datetime('now') WHERE mbid = ?"
+  ).run(type || null, bornDate || null, diedDate || null, mbid);
+}
+
+// Most-viewed first, same prioritization as albumsNeedingEnrichment - most
+// artists here are never-fetched stub rows created from track credits
+// (session musicians, songwriters), so there are far more of them than
+// there's API budget to check quickly.
+export function artistsNeedingLifespanCheck(limit = 50) {
+  return db
+    .prepare(
+      `SELECT a.mbid as id, a.name,
+       (SELECT COUNT(*) FROM page_views pv WHERE pv.path = '/artist/' || a.mbid AND pv.is_bot = 0) as views
+       FROM artists a
+       WHERE a.life_span_checked_at IS NULL
+       ORDER BY views DESC
+       LIMIT ?`
+    )
+    .all(limit);
+}
+
+export function countArtistsNeedingLifespanCheck() {
+  return db.prepare('SELECT COUNT(*) as n FROM artists WHERE life_span_checked_at IS NULL').get().n;
+}
+
+// Only type = 'Person' - a Group's life-span ending means the band broke up,
+// not that anyone died, and conflating the two here would be a real,
+// embarrassing correctness bug for a feature about people's deaths.
+export function inMemoriam(limit = 12, offset = 0) {
+  return db
+    .prepare(
+      `SELECT a.mbid as id, a.name, a.disambiguation, a.died_date as diedDate, a.born_date as bornDate,
+       ${ARTIST_IMAGE_SQL} as imageUrl
+       FROM artists a
+       WHERE a.type = 'Person' AND a.died_date IS NOT NULL
+       ORDER BY a.died_date DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(limit, offset);
+}
+
+export function countInMemoriam() {
+  return db.prepare("SELECT COUNT(*) as n FROM artists WHERE type = 'Person' AND died_date IS NOT NULL").get().n;
+}
+
 export function sitemapAlbums() {
   return db.prepare("SELECT mbid as id, substr(added_at, 1, 10) as lastmod FROM albums").all();
 }
@@ -736,6 +791,7 @@ export function getArtistLocal(mbid) {
   const artist = db
     .prepare(
       `SELECT a.mbid as id, a.name, a.disambiguation, a.bio, a.wiki_url as wikiUrl,
+       a.type, a.born_date as bornDate, a.died_date as diedDate,
        COALESCE(a.wiki_image_url, (SELECT al.cover_art_url FROM albums al
         JOIN album_artists aa2 ON aa2.album_mbid = al.mbid
         WHERE aa2.artist_mbid = a.mbid AND al.cover_art_url IS NOT NULL

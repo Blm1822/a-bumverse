@@ -10,11 +10,13 @@ const recentPageEl = document.getElementById('recent-page');
 const trendingPageEl = document.getElementById('trending-page');
 const topRatedPageEl = document.getElementById('top-rated-page');
 const onThisDayPageEl = document.getElementById('on-this-day-page');
+const inMemoriamPageEl = document.getElementById('in-memoriam-page');
 const navArtists = document.getElementById('nav-artists');
 const navRecent = document.getElementById('nav-recent');
 const navTrending = document.getElementById('nav-trending');
 const navTopRated = document.getElementById('nav-top-rated');
 const navOnThisDay = document.getElementById('nav-on-this-day');
+const navInMemoriam = document.getElementById('nav-in-memoriam');
 const form = document.getElementById('search-form');
 const input = document.getElementById('search-input');
 const statsEl = document.getElementById('stats');
@@ -371,7 +373,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, profilePageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, inMemoriamPageEl, profilePageEl];
 }
 
 function showOnly(el) {
@@ -393,6 +395,7 @@ function route() {
   navTrending.classList.toggle('active', parts[0] === 'trending');
   navTopRated.classList.toggle('active', parts[0] === 'top-rated');
   navOnThisDay.classList.toggle('active', parts[0] === 'on-this-day');
+  navInMemoriam.classList.toggle('active', parts[0] === 'in-memoriam');
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
   if (parts[0] === 'user' && parts[1]) return renderProfilePage(parts[1]);
@@ -406,6 +409,7 @@ function route() {
   if (parts[0] === 'trending' && !parts[1]) return renderTrendingPage();
   if (parts[0] === 'top-rated' && !parts[1]) return renderTopRatedPage();
   if (parts[0] === 'on-this-day' && !parts[1]) return renderOnThisDayPage();
+  if (parts[0] === 'in-memoriam' && !parts[1]) return renderInMemoriamPage();
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -489,6 +493,33 @@ function artistCard(a) {
   return card;
 }
 
+// Both bornDate/diedDate can be any MusicBrainz precision (year, year-month,
+// or full date) - only the year is meaningful for a card, so just take the
+// first 4 characters rather than trying to parse/reformat a partial date.
+function lifespanLabel(a) {
+  const born = a.bornDate ? a.bornDate.slice(0, 4) : '?';
+  const died = a.diedDate ? a.diedDate.slice(0, 4) : '';
+  return died ? `${born}–${died}` : born;
+}
+
+// Same card shape as artistCard, but with life-span years instead of an
+// album count - a numbered "rank" treatment (like the chart pages use)
+// would read as tasteless for a memorial list, so this stays a plain grid.
+function memoriamCard(a) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.appendChild(posterWrap(a.imageUrl, a.name));
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  body.innerHTML = `
+    <div class="title">${escapeHtml(a.name)}</div>
+    <div class="meta">${escapeHtml(lifespanLabel(a))}${a.disambiguation ? ' · ' + escapeHtml(a.disambiguation) : ''}</div>
+  `;
+  card.appendChild(body);
+  card.addEventListener('click', () => navigate(`/artist/${a.id}`));
+  return card;
+}
+
 async function loadHero() {
   const heroEl = document.getElementById('hero');
   try {
@@ -556,6 +587,25 @@ async function loadOnThisDay() {
     titleEl.textContent = `On this day: ${data.label}`;
     rail.innerHTML = '';
     for (const al of items) rail.appendChild(albumCard(al));
+  } catch {
+    section.classList.add('hidden');
+  }
+}
+
+async function loadInMemoriam() {
+  const section = document.getElementById('in-memoriam-section');
+  const rail = document.getElementById('in-memoriam-rail');
+  try {
+    const res = await fetch('/api/in-memoriam');
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    rail.innerHTML = '';
+    for (const a of items) rail.appendChild(memoriamCard(a));
   } catch {
     section.classList.add('hidden');
   }
@@ -658,6 +708,42 @@ async function renderOnThisDayPage() {
     });
   } catch (err) {
     onThisDayPageEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function renderInMemoriamPage() {
+  showOnly(inMemoriamPageEl);
+  setTitle('In Memoriam');
+  inMemoriamPageEl.innerHTML = '<div class="loading">Loading…</div>';
+  const url = '/api/in-memoriam/all';
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const items = data.results || [];
+    inMemoriamPageEl.innerHTML = `
+      <button class="back-btn" id="im-back-btn">&larr; Back</button>
+      <h2 class="section-title">In Memoriam</h2>
+      <p class="hint">Musicians in the database whose MusicBrainz profile records that they've passed away, most recent first.</p>
+      ${items.length ? `
+        <div class="grid" id="im-grid"></div>
+        <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="im-load-more">Load more</button></div>
+      ` : '<p class="empty">Nothing on file yet.</p>'}
+    `;
+    document.getElementById('im-back-btn').addEventListener('click', () => history.back());
+    const grid = document.getElementById('im-grid');
+    if (!grid) return;
+    for (const a of items) grid.appendChild(memoriamCard(a));
+
+    let offset = items.length;
+    const total = data.total || 0;
+    const button = document.getElementById('im-load-more');
+    button.parentElement.classList.toggle('hidden', offset >= total);
+    button.addEventListener('click', async () => {
+      const next = await loadPage({ url, grid, button, offset, cardFn: memoriamCard });
+      offset = next.offset;
+    });
+  } catch (err) {
+    inMemoriamPageEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -927,6 +1013,7 @@ function renderHome() {
   loadGenres();
   renderHomeRails();
   loadRecentReviews();
+  loadInMemoriam();
   if (!homeTimer) {
     homeTimer = setInterval(() => {
       if (homeView.classList.contains('hidden')) return;
@@ -986,10 +1073,11 @@ async function renderArtist(id) {
         <div>
           <h2>${escapeHtml(data.name)}</h2>
           ${data.disambiguation ? `<div class="sub">${escapeHtml(data.disambiguation)}</div>` : ''}
+          ${data.type === 'Person' && (data.bornDate || data.diedDate) ? `<div class="sub">${escapeHtml(lifespanLabel(data))}</div>` : ''}
           ${data.bio ? `<p class="bio">${escapeHtml(data.bio)}</p>` : ''}
           <div class="artist-links">
             ${data.wikiUrl ? `<a class="wiki-link" href="${data.wikiUrl}" target="_blank" rel="noopener">via Wikipedia</a>` : ''}
-            <a class="tickets-link" href="${ticketsLink(data.name)}" target="_blank" rel="noopener sponsored">Find ${escapeHtml(data.name)} tickets &rarr;</a>
+            ${data.diedDate ? '' : `<a class="tickets-link" href="${ticketsLink(data.name)}" target="_blank" rel="noopener sponsored">Find ${escapeHtml(data.name)} tickets &rarr;</a>`}
             <a class="merch-link" href="${merchLink(data.name, config.amazonAssociateTag)}" target="_blank" rel="noopener sponsored">Shop ${escapeHtml(data.name)} merch &rarr;</a>
           </div>
           ${shareLinksHtml(`${data.name} — on Albumverse`)}
@@ -1476,7 +1564,7 @@ homeLink.addEventListener('click', (e) => {
   navigate('/');
 });
 
-for (const link of [navArtists, navRecent, navTrending, navTopRated, navOnThisDay]) {
+for (const link of [navArtists, navRecent, navTrending, navTopRated, navOnThisDay, navInMemoriam]) {
   link.addEventListener('click', (e) => {
     e.preventDefault();
     navigate(link.getAttribute('href'));

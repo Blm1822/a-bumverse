@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -30,9 +30,10 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // rest of MusicBrainz's budget for actual traffic.
 //
 // Once every seed file is caught up (fast on a warm library, since the
-// import script skips albums already saved), the last step in the chain is
-// scripts/backfill.js - it retroactively fetches genre/Discogs data for
-// albums saved before that enrichment existed. On a large library this can
+// import script skips albums already saved), the chain moves on to
+// scripts/backfill.js (genre/Discogs data for albums saved before that
+// enrichment existed) and then scripts/backfill-lifespan.js (artist
+// type/birth/death, for "In Memoriam"). On a large library these can each
 // run for a very long time (same order of magnitude as the initial import),
 // which is fine: it's one background stream, still never in parallel with
 // the seed imports above, and it just resumes wherever it left off on the
@@ -49,7 +50,9 @@ function launchSeedImports() {
 
   function runNext(i) {
     if (i >= files.length) {
-      runScript(['scripts/backfill.js'], () => {});
+      runScript(['scripts/backfill.js'], () => {
+        runScript(['scripts/backfill-lifespan.js'], () => {});
+      });
       return;
     }
     runScript(['scripts/import.js', '--file', files[i]], () => runNext(i + 1));
@@ -466,6 +469,15 @@ app.get('/api/on-this-day/all', (req, res) => {
   res.json({ results: onThisDayAlbums(limit, offset), total: countOnThisDayAlbums(), label: todayLabel() });
 });
 
+app.get('/api/in-memoriam', (req, res) => {
+  res.json({ results: inMemoriam(8) });
+});
+
+app.get('/api/in-memoriam/all', (req, res) => {
+  const { limit, offset } = pageParams(req);
+  res.json({ results: inMemoriam(limit, offset), total: countInMemoriam() });
+});
+
 app.get('/api/decades', (req, res) => {
   res.json({ results: decadeCounts() });
 });
@@ -597,14 +609,17 @@ function albumJsonLd(req, album) {
 
 function artistJsonLd(req, artist) {
   const url = `${req.protocol}://${req.get('host')}/artist/${artist.id}`;
+  const isPerson = artist.type === 'Person';
   return {
     '@context': 'https://schema.org',
-    '@type': 'MusicGroup',
+    '@type': isPerson ? 'Person' : 'MusicGroup',
     name: artist.name,
     url,
     description: artist.bio || undefined,
     image: artist.coverArtUrl || undefined,
     sameAs: artist.wikiUrl ? [artist.wikiUrl] : undefined,
+    birthDate: isPerson ? artist.bornDate || undefined : undefined,
+    deathDate: isPerson ? artist.diedDate || undefined : undefined,
   };
 }
 
@@ -686,6 +701,14 @@ app.get('/on-this-day', (req, res) => {
   res.send(renderIndexWithMeta(req, {
     title: `On this day: ${label}`,
     description: `Albums first released on ${label} across music history, on Albumverse.`,
+  }));
+});
+
+app.get('/in-memoriam', (req, res) => {
+  logView(req, null);
+  res.send(renderIndexWithMeta(req, {
+    title: 'In Memoriam',
+    description: "Musicians in Albumverse's database whose MusicBrainz profile records that they've passed away, most recent first.",
   }));
 });
 
