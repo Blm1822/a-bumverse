@@ -783,6 +783,25 @@ async function renderHomeRails() {
   }
 }
 
+async function loadRecentReviews() {
+  const section = document.getElementById('recent-reviews-section');
+  const list = document.getElementById('recent-reviews-list');
+  try {
+    const res = await fetch('/api/recent-reviews');
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    list.innerHTML = '';
+    for (const r of items) list.appendChild(recentReviewRow(r));
+  } catch {
+    section.classList.add('hidden');
+  }
+}
+
 let homeTimer = null;
 
 function renderHome() {
@@ -795,11 +814,13 @@ function renderHome() {
   loadDecades();
   loadGenres();
   renderHomeRails();
+  loadRecentReviews();
   if (!homeTimer) {
     homeTimer = setInterval(() => {
       if (homeView.classList.contains('hidden')) return;
       renderHomeRails();
       loadTrending();
+      loadRecentReviews();
     }, 10000);
   }
 }
@@ -1137,6 +1158,41 @@ function profileReviewRow(r) {
   const rating = document.createElement('div');
   rating.className = 'chart-views';
   rating.innerHTML = `${r.rating}/10<br /><span class="review-date">${escapeHtml((r.updatedAt || '').slice(0, 10))}</span>`;
+  row.appendChild(rating);
+
+  row.addEventListener('click', () => navigate(`/album/${r.albumId}`));
+  return row;
+}
+
+// Same row shape as profileReviewRow, but for the homepage's site-wide feed
+// (not one person's page) - so who wrote it has to be shown too, as a second
+// clickable target alongside the row's own album click, hence stopPropagation
+// on the username link so it doesn't also fire the row's navigate-to-album.
+function recentReviewRow(r) {
+  const row = document.createElement('div');
+  row.className = 'chart-row profile-review-row';
+
+  const thumb = posterWrap(r.albumCoverArtUrl, r.albumTitle);
+  thumb.classList.add('chart-thumb');
+  row.appendChild(thumb);
+
+  const info = document.createElement('div');
+  info.className = 'chart-info';
+  info.innerHTML = `
+    <div class="chart-title">${escapeHtml(r.albumTitle)}</div>
+    <div class="chart-meta">${escapeHtml(r.albumArtist || '')} &middot; reviewed by <a href="/user/${encodeURIComponent(r.username)}" class="review-user-link">${escapeHtml(r.username)}</a></div>
+    ${r.body ? `<p class="review-body">${escapeHtml(r.body)}</p>` : ''}
+  `;
+  row.appendChild(info);
+  info.querySelector('.review-user-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(e.currentTarget.getAttribute('href'));
+  });
+
+  const rating = document.createElement('div');
+  rating.className = 'chart-views';
+  rating.textContent = `${r.rating}/10`;
   row.appendChild(rating);
 
   row.addEventListener('click', () => navigate(`/album/${r.albumId}`));

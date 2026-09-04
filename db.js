@@ -514,7 +514,7 @@ export function getReviewsForAlbum(albumMbid, limit = 20, offset = 0) {
     .prepare(
       `SELECT r.rating as rating, r.body as body, r.updated_at as updatedAt, u.username as username
        FROM reviews r JOIN users u ON u.id = r.user_id
-       WHERE r.album_mbid = ? ORDER BY r.updated_at DESC LIMIT ? OFFSET ?`
+       WHERE r.album_mbid = ? ORDER BY r.updated_at DESC, r.id DESC LIMIT ? OFFSET ?`
     )
     .all(albumMbid, limit, offset);
 }
@@ -535,13 +535,31 @@ export function getReviewsByUser(userId, limit = 20, offset = 0) {
       `SELECT r.rating as rating, r.body as body, r.updated_at as updatedAt,
        al.mbid as albumId, al.title as albumTitle, al.artist_credit as albumArtist, al.cover_art_url as albumCoverArtUrl
        FROM reviews r JOIN albums al ON al.mbid = r.album_mbid
-       WHERE r.user_id = ? ORDER BY r.updated_at DESC LIMIT ? OFFSET ?`
+       WHERE r.user_id = ? ORDER BY r.updated_at DESC, r.id DESC LIMIT ? OFFSET ?`
     )
     .all(userId, limit, offset);
 }
 
 export function countReviewsByUser(userId) {
   return db.prepare('SELECT COUNT(*) as n FROM reviews WHERE user_id = ?').get(userId).n;
+}
+
+// Newest reviews site-wide, for the homepage activity feed - unlike
+// getReviewsForAlbum/getReviewsByUser (scoped to one album or one user)
+// this pulls across everyone, so both who wrote it and what album it's
+// about need to travel with each row.
+export function recentReviews(limit = 12) {
+  return db
+    .prepare(
+      `SELECT r.rating as rating, r.body as body, r.updated_at as updatedAt, u.username as username,
+       al.mbid as albumId, al.title as albumTitle, al.artist_credit as albumArtist, al.cover_art_url as albumCoverArtUrl
+       FROM reviews r
+       JOIN users u ON u.id = r.user_id
+       JOIN albums al ON al.mbid = r.album_mbid
+       ORDER BY r.updated_at DESC, r.id DESC
+       LIMIT ?`
+    )
+    .all(limit);
 }
 
 export function sitemapAlbums() {
