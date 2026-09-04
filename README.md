@@ -34,6 +34,26 @@ instead of 60 (Discogs' own limits). Either way this is best-effort — a
 missing token, no match, or any API failure just means an album has no
 "Additional credits" section, never an error.
 
+### SeatGeek tour dates (optional)
+
+Without this, an artist page's ticket link is just a blind SeatGeek search.
+With it, artists with upcoming shows get real dates/venues listed, each
+linking straight to that event.
+
+1. Get a `client_id` from [SeatGeek's Platform API](https://platform.seatgeek.com/) (self-serve signup).
+2. Set it as an env var before starting the server:
+   ```bash
+   export SEATGEEK_CLIENT_ID=your-client-id-here
+   ```
+3. Optional: once approved for [SeatGeek's affiliate program](https://seatgeek.com/affiliate), set
+   `SEATGEEK_AFFILIATE_ID` too so ticket links carry your tracking - confirm
+   the actual tracking mechanism SeatGeek's affiliate dashboard gives you,
+   since `seatgeek.js`'s `withAffiliateTag()` assumes a simple `?aid=` query
+   param and may need adjusting to match.
+
+Best-effort, same as Discogs: no client ID, no matching shows, or any API
+failure just means the generic "Find tickets" search link stays as-is.
+
 ## Growing the library
 
 Seed artist lists live in `artists.txt`, `artists_expansion.txt`, and

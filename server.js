@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
+import { getUpcomingShows } from './seatgeek.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
 
@@ -538,6 +539,22 @@ app.get('/api/artist/:mbid/similar', (req, res) => {
   }
   if (!getArtistLocal(mbid)) return res.status(404).json({ error: 'Artist not in the database.' });
   res.json({ results: similarArtists(mbid, 12) });
+});
+
+// Separate from the main artist fetch (like /similar above) so a slow or
+// missing SeatGeek lookup never holds up the rest of the page. Deceased
+// artists (see the In Memoriam feature) never get a real lookup - showing
+// "upcoming shows" for someone who's died would be worse than showing
+// nothing, not just pointless.
+app.get('/api/artist/:mbid/shows', async (req, res) => {
+  const { mbid } = req.params;
+  if (!MBID_RE.test(mbid)) {
+    return res.status(400).json({ error: 'Not a valid artist id.' });
+  }
+  const artist = getArtistLocal(mbid);
+  if (!artist) return res.status(404).json({ error: 'Artist not in the database.' });
+  if (artist.diedDate) return res.json({ results: [] });
+  res.json({ results: await getUpcomingShows(artist.name) });
 });
 
 // --- Real, shareable URLs for albums/artists (SPA routes, server-rendered

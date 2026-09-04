@@ -318,6 +318,21 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
   border-radius: 999px;
 }
 .tickets-link:hover { background: var(--accent2); color: #16142a; }
+.upcoming-shows { margin-top: 12px; max-width: 420px; }
+.upcoming-shows-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.upcoming-show-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+}
+.upcoming-show-row:last-child { border-bottom: none; }
+.upcoming-show-row:hover .show-venue { color: var(--accent); }
+.upcoming-show-row .show-date { flex: 0 0 46px; color: var(--accent2); font-weight: 700; font-size: 13px; }
+.upcoming-show-row .show-venue { font-size: 13px; color: var(--text); }
 .share-links { display: flex; gap: 14px; margin-top: 10px; }
 .share-link {
   color: var(--muted);

@@ -1077,9 +1077,10 @@ async function renderArtist(id) {
           ${data.bio ? `<p class="bio">${escapeHtml(data.bio)}</p>` : ''}
           <div class="artist-links">
             ${data.wikiUrl ? `<a class="wiki-link" href="${data.wikiUrl}" target="_blank" rel="noopener">via Wikipedia</a>` : ''}
-            ${data.diedDate ? '' : `<a class="tickets-link" href="${ticketsLink(data.name)}" target="_blank" rel="noopener sponsored">Find ${escapeHtml(data.name)} tickets &rarr;</a>`}
+            ${data.diedDate ? '' : `<a class="tickets-link" id="tickets-link" href="${ticketsLink(data.name)}" target="_blank" rel="noopener sponsored">Find ${escapeHtml(data.name)} tickets &rarr;</a>`}
             <a class="merch-link" href="${merchLink(data.name, config.amazonAssociateTag)}" target="_blank" rel="noopener sponsored">Shop ${escapeHtml(data.name)} merch &rarr;</a>
           </div>
+          <div class="upcoming-shows hidden" id="upcoming-shows"></div>
           ${shareLinksHtml(`${data.name} — on Albumverse`)}
         </div>
       </div>
@@ -1104,8 +1105,52 @@ async function renderArtist(id) {
     if (appearGrid) for (const al of data.appearances || []) appearGrid.appendChild(albumCard(al));
     wireShareLinks(artistEl);
     loadSimilarArtists(data.id);
+    loadUpcomingShows(data.id);
   } catch (err) {
     artistEl.innerHTML = `<p class="error">Failed to load artist: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// "YYYY-MM-DD" -> "Nov 15" by splitting the string, not new Date(dateStr) -
+// parsing an ISO date string that way reads it as UTC midnight, which can
+// print the wrong day depending on the visitor's local timezone.
+function fmtShowDate(dateStr) {
+  const [y, m, d] = (dateStr || '').split('-').map(Number);
+  if (!y || !m || !d) return dateStr || '';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[m - 1]} ${d}`;
+}
+
+// Separate from the main artist fetch (see /api/artist/:id/shows on the
+// server) so a slow or absent SeatGeek lookup never holds up the rest of the
+// page - it just quietly upgrades the generic "Find tickets" link into real
+// dates when there's something to show, and leaves that link alone
+// otherwise (including for a deceased artist, where the server never even
+// attempts the lookup and this always resolves to an empty list).
+async function loadUpcomingShows(id) {
+  const container = document.getElementById('upcoming-shows');
+  if (!container) return;
+  try {
+    const res = await fetch(`/api/artist/${id}/shows`);
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) return;
+
+    const ticketsLinkEl = document.getElementById('tickets-link');
+    if (ticketsLinkEl) ticketsLinkEl.classList.add('hidden');
+
+    container.innerHTML = `
+      <div class="upcoming-shows-title">Upcoming shows</div>
+      ${items.map((s) => `
+        <a class="upcoming-show-row" href="${s.url}" target="_blank" rel="noopener sponsored">
+          <span class="show-date">${escapeHtml(fmtShowDate(s.date))}</span>
+          <span class="show-venue">${escapeHtml(s.venue)}${s.city ? ' · ' + escapeHtml(s.city) : ''}</span>
+        </a>
+      `).join('')}
+    `;
+    container.classList.remove('hidden');
+  } catch {
+    // leave the fallback "Find tickets" link as-is
   }
 }
 
