@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -435,6 +435,15 @@ app.get('/api/recent-reviews', (req, res) => {
   res.json({ results: recentReviews(12) });
 });
 
+app.get('/api/on-this-day', (req, res) => {
+  res.json({ results: onThisDayAlbums(8), label: todayLabel() });
+});
+
+app.get('/api/on-this-day/all', (req, res) => {
+  const { limit, offset } = pageParams(req);
+  res.json({ results: onThisDayAlbums(limit, offset), total: countOnThisDayAlbums(), label: todayLabel() });
+});
+
 app.get('/api/decades', (req, res) => {
   res.json({ results: decadeCounts() });
 });
@@ -506,6 +515,21 @@ function escapeAttr(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function ordinal(n) {
+  const suffixes = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
+}
+// UTC explicitly, not server-local time - SQLite's own `datetime('now')`
+// (what the on-this-day queries match against) is always UTC, so the label
+// has to use the same clock or it could name a different day than the data
+// actually matches near a local-midnight boundary.
+function todayLabel() {
+  const now = new Date();
+  return `${MONTH_NAMES[now.getUTCMonth()]} ${ordinal(now.getUTCDate())}`;
 }
 
 // ISO 8601 duration (e.g. "PT4M56S") - the format schema.org's MusicRecording
@@ -631,6 +655,15 @@ app.get('/top-rated', (req, res) => {
   res.send(renderIndexWithMeta(req, {
     title: 'Top rated albums',
     description: 'The highest user-rated albums on Albumverse.',
+  }));
+});
+
+app.get('/on-this-day', (req, res) => {
+  logView(req, null);
+  const label = todayLabel();
+  res.send(renderIndexWithMeta(req, {
+    title: `On this day: ${label}`,
+    description: `Albums first released on ${label} across music history, on Albumverse.`,
   }));
 });
 

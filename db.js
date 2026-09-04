@@ -544,6 +544,32 @@ export function countReviewsByUser(userId) {
   return db.prepare('SELECT COUNT(*) as n FROM reviews WHERE user_id = ?').get(userId).n;
 }
 
+// "On this day": albums whose release date's month+day matches today,
+// across every year on file. MusicBrainz release dates come through at
+// varying precision (year only, year-month, or full year-month-day) - only
+// full-precision (length 10) dates can honestly claim a specific day, so
+// anything coarser is excluded rather than guessed at.
+export function onThisDayAlbums(limit = 60, offset = 0) {
+  return db
+    .prepare(
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+       FROM albums
+       WHERE length(release_date) = 10 AND strftime('%m-%d', release_date) = strftime('%m-%d', 'now')
+       ORDER BY release_date ASC
+       LIMIT ? OFFSET ?`
+    )
+    .all(limit, offset);
+}
+
+export function countOnThisDayAlbums() {
+  return db
+    .prepare(
+      `SELECT COUNT(*) as n FROM albums
+       WHERE length(release_date) = 10 AND strftime('%m-%d', release_date) = strftime('%m-%d', 'now')`
+    )
+    .get().n;
+}
+
 // Newest reviews site-wide, for the homepage activity feed - unlike
 // getReviewsForAlbum/getReviewsByUser (scoped to one album or one user)
 // this pulls across everyone, so both who wrote it and what album it's

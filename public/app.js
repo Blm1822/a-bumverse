@@ -9,10 +9,12 @@ const artistsPageEl = document.getElementById('artists-page');
 const recentPageEl = document.getElementById('recent-page');
 const trendingPageEl = document.getElementById('trending-page');
 const topRatedPageEl = document.getElementById('top-rated-page');
+const onThisDayPageEl = document.getElementById('on-this-day-page');
 const navArtists = document.getElementById('nav-artists');
 const navRecent = document.getElementById('nav-recent');
 const navTrending = document.getElementById('nav-trending');
 const navTopRated = document.getElementById('nav-top-rated');
+const navOnThisDay = document.getElementById('nav-on-this-day');
 const form = document.getElementById('search-form');
 const input = document.getElementById('search-input');
 const statsEl = document.getElementById('stats');
@@ -319,7 +321,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, profilePageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, profilePageEl];
 }
 
 function showOnly(el) {
@@ -340,6 +342,7 @@ function route() {
   navRecent.classList.toggle('active', parts[0] === 'recent');
   navTrending.classList.toggle('active', parts[0] === 'trending');
   navTopRated.classList.toggle('active', parts[0] === 'top-rated');
+  navOnThisDay.classList.toggle('active', parts[0] === 'on-this-day');
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
   if (parts[0] === 'user' && parts[1]) return renderProfilePage(parts[1]);
@@ -352,6 +355,7 @@ function route() {
   if (parts[0] === 'recent' && !parts[1]) return renderRecentPage();
   if (parts[0] === 'trending' && !parts[1]) return renderTrendingPage();
   if (parts[0] === 'top-rated' && !parts[1]) return renderTopRatedPage();
+  if (parts[0] === 'on-this-day' && !parts[1]) return renderOnThisDayPage();
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -486,6 +490,27 @@ async function loadTrending() {
   }
 }
 
+async function loadOnThisDay() {
+  const section = document.getElementById('on-this-day-section');
+  const rail = document.getElementById('on-this-day-rail');
+  const titleEl = document.getElementById('on-this-day-title');
+  try {
+    const res = await fetch('/api/on-this-day');
+    const data = await res.json();
+    const items = data.results || [];
+    if (!items.length) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    titleEl.textContent = `On this day: ${data.label}`;
+    rail.innerHTML = '';
+    for (const al of items) rail.appendChild(albumCard(al));
+  } catch {
+    section.classList.add('hidden');
+  }
+}
+
 function updateBrowseSelectSectionVisibility() {
   const anyVisible = !document.getElementById('decades-section').classList.contains('hidden')
     || !document.getElementById('genres-section').classList.contains('hidden');
@@ -547,6 +572,42 @@ async function renderDecade(decade) {
     });
   } catch (err) {
     decadeEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function renderOnThisDayPage() {
+  showOnly(onThisDayPageEl);
+  onThisDayPageEl.innerHTML = '<div class="loading">Loading…</div>';
+  const url = '/api/on-this-day/all';
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const items = data.results || [];
+    setTitle(`On this day: ${data.label}`);
+    onThisDayPageEl.innerHTML = `
+      <button class="back-btn" id="otd-back-btn">&larr; Back</button>
+      <h2 class="section-title">Released on ${escapeHtml(data.label)}</h2>
+      <p class="hint">Albums in the database first released on this date, across every year on file.</p>
+      ${items.length ? `
+        <div class="grid" id="otd-grid"></div>
+        <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="otd-load-more">Load more</button></div>
+      ` : '<p class="empty">No albums on file with a confirmed release date of exactly this day - check back tomorrow, or browse a decade or genre instead.</p>'}
+    `;
+    document.getElementById('otd-back-btn').addEventListener('click', () => history.back());
+    const grid = document.getElementById('otd-grid');
+    if (!grid) return;
+    for (const al of items) grid.appendChild(albumCard(al));
+
+    let offset = items.length;
+    const total = data.total || 0;
+    const button = document.getElementById('otd-load-more');
+    button.parentElement.classList.toggle('hidden', offset >= total);
+    button.addEventListener('click', async () => {
+      const next = await loadPage({ url, grid, button, offset, cardFn: albumCard });
+      offset = next.offset;
+    });
+  } catch (err) {
+    onThisDayPageEl.innerHTML = `<p class="error">Failed to load: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -811,6 +872,7 @@ function renderHome() {
   loadStats();
   loadHero();
   loadTrending();
+  loadOnThisDay();
   loadDecades();
   loadGenres();
   renderHomeRails();
@@ -1360,7 +1422,7 @@ homeLink.addEventListener('click', (e) => {
   navigate('/');
 });
 
-for (const link of [navArtists, navRecent, navTrending, navTopRated]) {
+for (const link of [navArtists, navRecent, navTrending, navTopRated, navOnThisDay]) {
   link.addEventListener('click', (e) => {
     e.preventDefault();
     navigate(link.getAttribute('href'));
