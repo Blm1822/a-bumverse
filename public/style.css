@@ -333,6 +333,42 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 .upcoming-show-row:hover .show-venue { color: var(--accent); }
 .upcoming-show-row .show-date { flex: 0 0 46px; color: var(--accent2); font-weight: 700; font-size: 13px; }
 .upcoming-show-row .show-venue { font-size: 13px; color: var(--text); }
+.poster-maker-link { display: block; margin-top: 12px; color: var(--accent); font-size: 13px; font-weight: 700; text-decoration: none; }
+.poster-maker-link:hover { color: var(--accent2); }
+
+.poster-search-form { display: flex; gap: 10px; max-width: 480px; margin-bottom: 20px; }
+.poster-search-form input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+}
+#poster-results { max-width: 640px; }
+.poster-show-row {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.poster-show-row:hover { border-color: var(--accent); }
+.poster-show-row.selected { border-color: var(--accent); background: rgba(180, 155, 251, 0.1); }
+#poster-preview-section { margin-top: 32px; }
+.poster-preview-wrap {
+  max-width: 420px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+.poster-preview-wrap canvas { display: block; width: 100%; height: auto; }
+.poster-controls { display: flex; align-items: center; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+.poster-photo-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+#poster-photo-input { font-size: 12px; color: var(--muted); max-width: 220px; }
 .share-links { display: flex; gap: 14px; margin-top: 10px; }
 .share-link {
   color: var(--muted);

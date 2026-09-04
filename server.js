@@ -9,6 +9,7 @@ import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
+import { searchSetlists } from './setlistfm.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
 
@@ -557,6 +558,17 @@ app.get('/api/artist/:mbid/shows', async (req, res) => {
   res.json({ results: await getUpcomingShows(artist.name) });
 });
 
+// Powers the poster picker - a visitor searches an artist name, optionally
+// narrows by date once they see the results, and picks the specific past
+// show they were actually at. Not artist-mbid-scoped like the routes above
+// since setlist.fm is keyed by its own artist matching, not MusicBrainz ids.
+app.get('/api/setlists/search', async (req, res) => {
+  const artistName = String(req.query.artist || '').trim();
+  if (!artistName) return res.json({ results: [] });
+  const date = String(req.query.date || '').trim() || undefined;
+  res.json({ results: await searchSetlists(artistName, { date }) });
+});
+
 // --- Real, shareable URLs for albums/artists (SPA routes, server-rendered
 // meta tags). Without this every page on the site was the same URL, which
 // meant nothing could be bookmarked/shared and Google could never index an
@@ -726,6 +738,14 @@ app.get('/in-memoriam', (req, res) => {
   res.send(renderIndexWithMeta(req, {
     title: 'In Memoriam',
     description: "Musicians in Albumverse's database whose MusicBrainz profile records that they've passed away, most recent first.",
+  }));
+});
+
+app.get('/poster', (req, res) => {
+  logView(req, null);
+  res.send(renderIndexWithMeta(req, {
+    title: 'Concert Poster Maker',
+    description: 'Turn a real show you were at into a shareable poster - artist, date, venue, and the actual setlist.',
   }));
 });
 

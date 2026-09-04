@@ -54,6 +54,22 @@ linking straight to that event.
 Best-effort, same as Discogs: no client ID, no matching shows, or any API
 failure just means the generic "Find tickets" search link stays as-is.
 
+### Concert poster maker (optional)
+
+`/poster` lets a visitor search an artist, pick a specific past show, and
+generate a downloadable poster (date, venue, real setlist, optionally their
+own photo) - a shareable memento, not a physical product; nothing is printed
+or shipped. Needs real setlist data from [setlist.fm](https://api.setlist.fm/docs/1.0/index.html):
+
+1. Get a free API key from the link above (self-serve signup).
+2. Set it as an env var:
+   ```bash
+   export SETLISTFM_API_KEY=your-api-key-here
+   ```
+
+Without a key, the search just returns no results - the page itself still
+loads fine, there's just nothing to pick from.
+
 ## Growing the library
 
 Seed artist lists live in `artists.txt`, `artists_expansion.txt`, and

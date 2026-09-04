@@ -11,6 +11,7 @@ const trendingPageEl = document.getElementById('trending-page');
 const topRatedPageEl = document.getElementById('top-rated-page');
 const onThisDayPageEl = document.getElementById('on-this-day-page');
 const inMemoriamPageEl = document.getElementById('in-memoriam-page');
+const posterPageEl = document.getElementById('poster-page');
 const navArtists = document.getElementById('nav-artists');
 const navRecent = document.getElementById('nav-recent');
 const navTrending = document.getElementById('nav-trending');
@@ -373,7 +374,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, inMemoriamPageEl, profilePageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, inMemoriamPageEl, posterPageEl, profilePageEl];
 }
 
 function showOnly(el) {
@@ -410,6 +411,7 @@ function route() {
   if (parts[0] === 'top-rated' && !parts[1]) return renderTopRatedPage();
   if (parts[0] === 'on-this-day' && !parts[1]) return renderOnThisDayPage();
   if (parts[0] === 'in-memoriam' && !parts[1]) return renderInMemoriamPage();
+  if (parts[0] === 'poster' && !parts[1]) return renderPosterPage(new URLSearchParams(location.search).get('artist'));
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -747,6 +749,224 @@ async function renderInMemoriamPage() {
   }
 }
 
+// setlist.fm's own date format is DD-MM-YYYY, not ISO - split explicitly
+// rather than handing it to `new Date()`, which would misparse it.
+function formatSetlistDate(d) {
+  const [dd, mm, yyyy] = (d || '').split('-').map(Number);
+  if (!dd || !mm || !yyyy) return d || '';
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  return `${months[mm - 1]} ${dd}, ${yyyy}`;
+}
+
+// Canvas word-wrap (the canvas API has no built-in line wrapping) - draws
+// each wrapped line centered under the last, and returns the y position
+// just past the final line so the caller can keep stacking content below it
+// regardless of how many lines a long artist/band name wrapped into.
+function drawWrappedCenteredText(ctx, text, centerX, startY, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  let y = startY;
+  for (const l of lines) {
+    ctx.fillText(l, centerX, y);
+    y += lineHeight;
+  }
+  return y;
+}
+
+function drawPosterCanvas(canvas, show, photo) {
+  const W = 1000;
+  const ctx = canvas.getContext('2d');
+
+  // Layout is computed top-down before drawing anything, since the canvas
+  // has to be sized (and the setlist positioned) around however many lines
+  // the artist name wraps into and how many songs there are - both unknown
+  // until this specific show is picked.
+  ctx.font = 'bold 60px sans-serif';
+  const nameLines = Math.max(1, Math.ceil(ctx.measureText(show.artist).width / (W - 160)));
+  const headerHeight = 150 + nameLines * 70 + 140;
+  const lineHeight = 42;
+  const footerHeight = 90;
+  // Floor is just enough to keep a very short setlist from producing a
+  // cramped, tiny image - not a fixed poster height, which would leave a
+  // large dead-space gap below the last song on anything shorter than a
+  // packed multi-encore setlist.
+  const H = Math.max(700, headerHeight + show.songs.length * lineHeight + footerHeight);
+  canvas.width = W;
+  canvas.height = H;
+
+  if (photo) {
+    const scale = Math.max(W / photo.width, H / photo.height);
+    const sw = photo.width * scale, sh = photo.height * scale;
+    ctx.drawImage(photo, (W - sw) / 2, (H - sh) / 2, sw, sh);
+    ctx.fillStyle = 'rgba(20, 16, 34, 0.74)';
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const grad = ctx.createLinearGradient(0, 0, W, H);
+    grad.addColorStop(0, '#241f36');
+    grad.addColorStop(1, '#171429');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f3f1fa';
+  ctx.font = 'bold 60px sans-serif';
+  let y = drawWrappedCenteredText(ctx, show.artist, W / 2, 130, W - 160, 70);
+
+  y += 20;
+  ctx.fillStyle = '#f78dc0';
+  ctx.font = 'bold 32px sans-serif';
+  ctx.fillText(formatSetlistDate(show.date), W / 2, y);
+
+  y += 42;
+  ctx.fillStyle = '#d8d2ea';
+  ctx.font = '24px sans-serif';
+  ctx.fillText(`${show.venue} · ${show.city}`, W / 2, y);
+
+  if (show.tour) {
+    y += 34;
+    ctx.fillStyle = '#9d94b8';
+    ctx.font = 'italic 19px sans-serif';
+    ctx.fillText(show.tour, W / 2, y);
+  }
+
+  y += 36;
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.beginPath();
+  ctx.moveTo(W / 2 - 90, y);
+  ctx.lineTo(W / 2 + 90, y);
+  ctx.stroke();
+  y += 56;
+
+  ctx.textAlign = 'left';
+  for (let i = 0; i < show.songs.length; i++) {
+    ctx.fillStyle = '#b49bfb';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(String(i + 1).padStart(2, '0'), 130, y);
+    ctx.fillStyle = '#f3f1fa';
+    ctx.font = '25px sans-serif';
+    ctx.fillText(show.songs[i], 178, y);
+    y += lineHeight;
+  }
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = '17px sans-serif';
+  ctx.fillText('Made with albumverse.com', W / 2, H - 40);
+}
+
+function posterShowRow(s) {
+  const row = document.createElement('div');
+  row.className = 'poster-show-row';
+  row.innerHTML = `
+    <div class="chart-title">${escapeHtml(formatSetlistDate(s.date))} &mdash; ${escapeHtml(s.venue)}</div>
+    <div class="chart-meta">${escapeHtml(s.city)}${s.tour ? ' · ' + escapeHtml(s.tour) : ''} · ${s.songs.length} song${s.songs.length === 1 ? '' : 's'}</div>
+  `;
+  return row;
+}
+
+async function renderPosterPage(prefillArtist) {
+  showOnly(posterPageEl);
+  setTitle('Concert Poster Maker');
+  posterPageEl.innerHTML = `
+    <button class="back-btn" id="poster-back-btn">&larr; Back</button>
+    <h2 class="section-title">Make a poster from a show you were at</h2>
+    <p class="hint">Search the artist, then pick the exact date and venue - real setlists via setlist.fm.</p>
+    <form id="poster-search-form" class="poster-search-form">
+      <input type="text" id="poster-artist-input" placeholder="Artist name" value="${escapeHtml(prefillArtist || '')}" required />
+      <button type="submit">Search</button>
+    </form>
+    <div id="poster-results"></div>
+    <div id="poster-preview-section" class="hidden">
+      <h2 class="section-title">Your poster</h2>
+      <div class="poster-preview-wrap">
+        <canvas id="poster-canvas" width="1000" height="1400"></canvas>
+      </div>
+      <div class="poster-controls">
+        <label class="poster-photo-label" for="poster-photo-input">Add your own photo (optional)</label>
+        <input type="file" id="poster-photo-input" accept="image/*" />
+        <button type="button" class="auth-submit" id="poster-download-btn">Download poster</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('poster-back-btn').addEventListener('click', () => history.back());
+
+  let selectedShow = null;
+  let userPhoto = null;
+
+  function redraw() {
+    if (!selectedShow) return;
+    drawPosterCanvas(document.getElementById('poster-canvas'), selectedShow, userPhoto);
+  }
+
+  async function runSearch(artist) {
+    const results = document.getElementById('poster-results');
+    results.innerHTML = '<div class="loading">Searching…</div>';
+    try {
+      const res = await fetch(`/api/setlists/search?artist=${encodeURIComponent(artist)}`);
+      const data = await res.json();
+      const items = data.results || [];
+      if (!items.length) {
+        results.innerHTML = '<p class="empty">No setlists found for that artist - double check the spelling, or setlist.fm may not have this show logged yet.</p>';
+        return;
+      }
+      results.innerHTML = '<div class="chart-list" id="poster-results-list"></div>';
+      const list = document.getElementById('poster-results-list');
+      for (const s of items) {
+        const row = posterShowRow(s);
+        row.addEventListener('click', () => {
+          for (const r of list.children) r.classList.remove('selected');
+          row.classList.add('selected');
+          selectedShow = s;
+          document.getElementById('poster-preview-section').classList.remove('hidden');
+          redraw();
+          document.getElementById('poster-preview-section').scrollIntoView({ behavior: 'smooth' });
+        });
+        list.appendChild(row);
+      }
+    } catch {
+      results.innerHTML = '<p class="error">Search failed - try again.</p>';
+    }
+  }
+
+  document.getElementById('poster-search-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const artist = document.getElementById('poster-artist-input').value.trim();
+    if (artist) runSearch(artist);
+  });
+
+  document.getElementById('poster-photo-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => { userPhoto = img; redraw(); };
+    img.src = URL.createObjectURL(file);
+  });
+
+  document.getElementById('poster-download-btn').addEventListener('click', () => {
+    if (!selectedShow) return;
+    const canvas = document.getElementById('poster-canvas');
+    const link = document.createElement('a');
+    const slug = selectedShow.artist.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'concert';
+    link.download = `${slug}-poster.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  if (prefillArtist) runSearch(prefillArtist);
+}
+
 // Shared "load more" pager for the /artists and /recent browse pages: fetches
 // a page of items, appends cards to `grid`, and shows/hides the button
 // depending on whether more remain.
@@ -1081,6 +1301,7 @@ async function renderArtist(id) {
             <a class="merch-link" href="${merchLink(data.name, config.amazonAssociateTag)}" target="_blank" rel="noopener sponsored">Shop ${escapeHtml(data.name)} merch &rarr;</a>
           </div>
           <div class="upcoming-shows hidden" id="upcoming-shows"></div>
+          <a class="poster-maker-link" href="/poster?artist=${encodeURIComponent(data.name)}" id="poster-maker-link">Make a poster from a ${escapeHtml(data.name)} show you were at &rarr;</a>
           ${shareLinksHtml(`${data.name} — on Albumverse`)}
         </div>
       </div>
@@ -1099,6 +1320,10 @@ async function renderArtist(id) {
       </div>
     `;
     document.getElementById('artist-back-btn').addEventListener('click', () => history.back());
+    document.getElementById('poster-maker-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      navigate(e.currentTarget.getAttribute('href'));
+    });
     const grid = document.getElementById('artist-albums-grid');
     if (grid) for (const al of data.albums || []) grid.appendChild(albumCard(al));
     const appearGrid = document.getElementById('artist-appearances-grid');
