@@ -10,6 +10,7 @@ import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
+import { startSocialPoster } from './socialPoster.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
 
@@ -931,4 +932,5 @@ app.listen(PORT, () => {
   console.log(`Albumverse running at http://localhost:${PORT}`);
   console.log('Database:', stats());
   launchSeedImports();
+  startSocialPoster();
 });

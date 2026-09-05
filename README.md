@@ -70,6 +70,26 @@ or shipped. Needs real setlist data from [setlist.fm](https://api.setlist.fm/doc
 Without a key, the search just returns no results - the page itself still
 loads fine, there's just nothing to pick from.
 
+### Automated daily social post (optional)
+
+Once a day, the server picks the single most newsworthy thing on the site
+(a new In Memoriam entry first, then today's "On this day" pick, then this
+week's #1 trending album) and posts it to Bluesky with a link back - or
+posts nothing that day if none of those have anything new. A specific
+artist/album is never posted about twice.
+
+1. Create a Bluesky account and, under **Settings → App Passwords**, generate
+   one (don't use your real account password here).
+2. Set env vars:
+   ```bash
+   export BLUESKY_IDENTIFIER=yourhandle.bsky.social
+   export BLUESKY_APP_PASSWORD=your-app-password-here
+   export SITE_URL=https://albumverse.com   # defaults to this already; override if your domain differs
+   ```
+
+Without credentials, this quietly does nothing - same best-effort shape as
+Discogs/SeatGeek/setlist.fm above.
+
 ## Growing the library
 
 Seed artist lists live in `artists.txt`, `artists_expansion.txt`, and

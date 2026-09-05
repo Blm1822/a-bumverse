@@ -137,6 +137,20 @@ CREATE TABLE IF NOT EXISTS watchlist (
   UNIQUE (user_id, item_type, item_id)
 );
 
+-- Log of automated social posts (see socialPoster.js) - purely for dedup:
+-- at most one post per platform per day (posted_date), and content_type +
+-- item_id lets a specific artist/album be recognized as "already posted
+-- about" even across restarts, so a server reboot mid-day never double-posts.
+CREATE TABLE IF NOT EXISTS social_posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform TEXT NOT NULL,
+  posted_date TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  item_id TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (platform, posted_date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
@@ -150,6 +164,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_album ON reviews(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
 CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id);
+CREATE INDEX IF NOT EXISTS idx_social_posts_item ON social_posts(content_type, item_id);
 `);
 
 // Migration for DBs created before added_at existed.
@@ -714,6 +729,23 @@ export function getWatchlistArtists(userId, limit = 60, offset = 0) {
 
 export function countWatchlistArtists(userId) {
   return db.prepare("SELECT COUNT(*) as n FROM watchlist WHERE user_id = ? AND item_type = 'artist'").get(userId).n;
+}
+
+// --- Automated social posting dedup (see socialPoster.js) ---
+
+export function hasPostedToday(platform, dateStr) {
+  return !!db.prepare('SELECT 1 FROM social_posts WHERE platform = ? AND posted_date = ?').get(platform, dateStr);
+}
+
+export function hasPostedAboutItem(contentType, itemId) {
+  return !!db.prepare('SELECT 1 FROM social_posts WHERE content_type = ? AND item_id = ?').get(contentType, itemId);
+}
+
+export function recordSocialPost(platform, dateStr, contentType, itemId) {
+  db.prepare(
+    `INSERT INTO social_posts (platform, posted_date, content_type, item_id) VALUES (?, ?, ?, ?)
+     ON CONFLICT(platform, posted_date) DO NOTHING`
+  ).run(platform, dateStr, contentType, itemId || null);
 }
 
 export function sitemapAlbums() {
