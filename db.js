@@ -202,8 +202,16 @@ if (!userColumns.includes('recovery_code_hash')) {
 // all is unusual for a real browser (default curl/wget/most scripts either
 // send none or an obviously non-browser one), so treat that as bot too.
 const BOT_UA_RE = /bot|crawl|spider|slurp|facebookexternalhit|whatsapp|telegrambot|discordbot|headless|python-requests|scrapy|ahrefs|semrush|mj12bot|dotbot|petalbot|bytespider|ia_archiver|curl\/|wget\/|go-http-client|node-fetch|axios\//i;
-function isBotUserAgent(ua) {
-  return !ua || BOT_UA_RE.test(ua);
+
+// Vulnerability/plugin scanners routinely spoof an ordinary browser user-agent
+// to slip past UA-based filtering, but they give themselves away through the
+// paths they probe for - this app has no WordPress, PHP, or admin panel of any
+// kind, so a referrer naming one of those could never come from a real click
+// within the site; it's the scanner's own request trail leaking through.
+const BOT_REFERRER_RE = /wp-(admin|content|login|json|includes|sitemap)|xmlrpc\.php|phpmyadmin|\.env$|wordpress/i;
+
+function isBotRequest(ua, referrer) {
+  return !ua || BOT_UA_RE.test(ua) || (!!referrer && BOT_REFERRER_RE.test(referrer));
 }
 
 // Migration for DBs created before bot-traffic detection existed. Existing
@@ -215,15 +223,24 @@ if (!db.prepare('PRAGMA table_info(page_views)').all().map((c) => c.name).includ
   db.exec('ALTER TABLE page_views ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0;');
   db.exec('BEGIN');
   try {
-    const rows = db.prepare('SELECT id, user_agent FROM page_views').all();
+    const rows = db.prepare('SELECT id, user_agent, referrer FROM page_views').all();
     const markBot = db.prepare('UPDATE page_views SET is_bot = 1 WHERE id = ?');
     for (const r of rows) {
-      if (isBotUserAgent(r.user_agent)) markBot.run(r.id);
+      if (isBotRequest(r.user_agent, r.referrer)) markBot.run(r.id);
     }
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
+  }
+} else {
+  // BOT_REFERRER_RE was added after is_bot already existed on most databases,
+  // so rows logged in between never got checked against it - reclassify them
+  // now rather than leaving scanner traffic stuck counted as human forever.
+  const suspects = db.prepare('SELECT id, referrer FROM page_views WHERE is_bot = 0 AND referrer IS NOT NULL').all();
+  const markBot = db.prepare('UPDATE page_views SET is_bot = 1 WHERE id = ?');
+  for (const r of suspects) {
+    if (BOT_REFERRER_RE.test(r.referrer)) markBot.run(r.id);
   }
 }
 
@@ -758,7 +775,7 @@ export function sitemapArtists() {
 
 export function logPageView({ path: p, query, referrer, userAgent }) {
   db.prepare('INSERT INTO page_views (path, query, referrer, user_agent, is_bot) VALUES (?, ?, ?, ?, ?)').run(
-    p, query || null, referrer || null, userAgent || null, isBotUserAgent(userAgent) ? 1 : 0
+    p, query || null, referrer || null, userAgent || null, isBotRequest(userAgent, referrer) ? 1 : 0
   );
 }
 

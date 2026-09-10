@@ -912,7 +912,7 @@ app.get('/analytics', requireAnalyticsAuth, (req, res) => {
       <div class="stat"><div class="n">${dbStats.albums.toLocaleString()}</div><div class="l">albums in db</div></div>
     </div>
     <p style="color: #6b6584; font-size: 12px; margin-top: 10px;">
-      All numbers above are human traffic only (bots/crawlers filtered out by user-agent).
+      All numbers above are human traffic only (bots/crawlers/scanners filtered out by user-agent and telltale referrers).
       Separately: ${s.botViewsLast7d} bot views in the last 7 days, ${s.botViewsTotal} all-time
       &mdash; that's mostly search engines indexing the site, which is a good sign, not a problem.
     </p>
