@@ -92,15 +92,18 @@ Discogs/SeatGeek/setlist.fm above.
 
 ## Growing the library
 
-Seed artist lists live in `artists.txt`, `artists_expansion.txt`, and
-`artists_expansion_2.txt` (~280 artists across rock, metal, classical,
-country, soul, jazz, blues, folk, pop, hip-hop, grunge, indie, EDM, K-pop,
-Latin, punk, prog, and more). Import them with:
+Seed artist lists live in `artists.txt`, `artists_expansion.txt`,
+`artists_expansion_2.txt`, and `artists_expansion_3.txt` (~345 artists
+across rock, metal, classical, country, soul, jazz, blues, folk, pop,
+hip-hop, grunge, indie, EDM, K-pop, Latin, punk, prog, reggae, Afrobeats,
+gospel, bluegrass, and more - including current-decade names, not just
+classic-era). Import them with:
 
 ```bash
 npm run import -- --file artists.txt
 npm run import -- --file artists_expansion.txt
 npm run import -- --file artists_expansion_2.txt
+npm run import -- --file artists_expansion_3.txt
 ```
 
 **Classical composers are a trap.** MusicBrainz treats every orchestra's

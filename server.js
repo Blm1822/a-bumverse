@@ -43,7 +43,7 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // next deploy restart.
 function launchSeedImports() {
   if (!process.env.DATA_DIR) return;
-  const files = ['artists.txt', 'artists_expansion.txt', 'artists_expansion_2.txt'];
+  const files = ['artists.txt', 'artists_expansion.txt', 'artists_expansion_2.txt', 'artists_expansion_3.txt'];
 
   function runScript(args, onExit) {
     const child = spawn('node', args, { cwd: __dirname, stdio: 'inherit' });

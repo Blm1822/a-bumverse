@@ -1,0 +1,95 @@
+# Albumverse seed list, round 4: current-era genres the first three rounds
+# barely touched - reggae, 2010s/2020s pop, current hip-hop/R&B, current
+# Latin/reggaeton, Afrobeats, modern country, current K-pop, modern indie,
+# modern metal, contemporary jazz, gospel, and bluegrass.
+# Runs alongside artists.txt, artists_expansion.txt, artists_expansion_2.txt.
+
+# Reggae
+Peter Tosh
+Toots and the Maytals
+Burning Spear
+Jimmy Cliff
+UB40
+Damian Marley
+
+# Modern Pop
+Dua Lipa
+Harry Styles
+Olivia Rodrigo
+Lorde
+Miley Cyrus
+Justin Bieber
+Post Malone
+Doja Cat
+Lizzo
+
+# Modern Hip-Hop
+Tyler, The Creator
+Megan Thee Stallion
+Lil Nas X
+21 Savage
+Future
+A$AP Rocky
+Chance the Rapper
+Childish Gambino
+Playboi Carti
+
+# Modern R&B
+H.E.R.
+Daniel Caesar
+Summer Walker
+Jorja Smith
+
+# Modern Latin
+Rosalia
+Karol G
+Peso Pluma
+Maluma
+Ozuna
+
+# Afrobeats
+Burna Boy
+Wizkid
+Davido
+Tems
+
+# Modern Country
+Chris Stapleton
+Kacey Musgraves
+Morgan Wallen
+Zach Bryan
+Miranda Lambert
+
+# Modern K-pop
+NewJeans
+Stray Kids
+Seventeen
+Ive
+
+# Modern Indie / Alternative
+Phoebe Bridgers
+Mitski
+Japanese Breakfast
+boygenius
+Big Thief
+The 1975
+Fontaines D.C.
+Wet Leg
+
+# Modern Metal
+Gojira
+Trivium
+Bring Me the Horizon
+Sleep Token
+
+# Contemporary Jazz
+Kamasi Washington
+Robert Glasper
+
+# Gospel
+Kirk Franklin
+Mahalia Jackson
+
+# Bluegrass
+Alison Krauss
+Billy Strings
