@@ -17,6 +17,7 @@ import crypto from 'node:crypto';
 import { inMemoriam, onThisDayAlbums, trendingAlbums, hasPostedToday, hasPostedAboutItem, recordSocialPost } from './db.js';
 import { synthesizeSpeech } from './elevenlabs.js';
 import { renderVideo, getAudioDurationSeconds } from './video.js';
+import { uploadShort } from './youtube.js';
 
 const SITE_URL = process.env.SITE_URL || 'https://albumverse.com';
 const PLATFORM = 'youtube';
@@ -149,4 +150,33 @@ export async function buildDailyShort() {
 // to the next thing rather than re-picking the same item.
 export function recordShortPosted(contentType, itemId) {
   recordSocialPost(PLATFORM, todayUTC(), contentType, itemId);
+}
+
+async function checkAndPostShort() {
+  let result;
+  try {
+    result = await buildDailyShort();
+    if (!result) return; // nothing to cover today, or a required piece isn't configured
+
+    const videoBuffer = await fs.readFile(result.outPath);
+    const videoId = await uploadShort(videoBuffer, {
+      title: result.title,
+      description: result.description,
+      privacyStatus: 'public',
+    });
+    if (videoId) recordShortPosted(result.contentType, result.itemId);
+  } catch (err) {
+    console.error('daily short post check failed:', err.message);
+  } finally {
+    if (result) await fs.rm(path.dirname(result.outPath), { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// Checked hourly rather than on a precise schedule - same reasoning as
+// socialPoster.js: simpler than a cron dependency, and "sometime in the
+// hour after boot, then every hour after" is good enough for a once-a-day
+// upload.
+export function startYoutubePoster() {
+  checkAndPostShort();
+  setInterval(checkAndPostShort, 60 * 60 * 1000).unref();
 }
