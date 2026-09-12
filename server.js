@@ -11,6 +11,7 @@ import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
+import { buildDailyShort } from './youtubeShort.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
 
@@ -926,6 +927,30 @@ app.get('/analytics', requireAnalyticsAuth, (req, res) => {
     <table>${s.topReferrers.map((r) => row(r.referrer, r.n)).join('') || '<tr><td>No data yet</td></tr>'}</table>
   </body></html>`;
   res.send(html);
+});
+
+// Temporary diagnostic route for building the YouTube Shorts pipeline (see
+// youtubeShort.js) - lets us manually trigger a real render against
+// production (real cover art, real ElevenLabs narration) and download the
+// result to sanity-check it, before the YouTube upload step exists to do
+// that automatically. Safe to hit repeatedly: it reuses the same "already
+// covered" dedup check the eventual daily job will use, but never calls
+// recordShortPosted, so testing doesn't burn through real content.
+// TODO: remove this route once the daily job posts to YouTube on its own.
+app.get('/admin/render-test-short', requireAnalyticsAuth, async (req, res) => {
+  let result;
+  try {
+    result = await buildDailyShort();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  if (!result) {
+    return res.json({ rendered: false, reason: 'Nothing to render - see server logs (no credentials, no music track, already posted today, or nothing new to cover).' });
+  }
+  res.download(result.outPath, 'albumverse-short.mp4', (err) => {
+    fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
+    if (err) console.error('test short download failed:', err.message);
+  });
 });
 
 app.listen(PORT, () => {
