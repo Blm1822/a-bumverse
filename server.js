@@ -12,6 +12,7 @@ import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
 import { buildDailyShort } from './youtubeShort.js';
+import { uploadShort } from './youtube.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
 
@@ -951,6 +952,37 @@ app.get('/admin/render-test-short', requireAnalyticsAuth, async (req, res) => {
     fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
     if (err) console.error('test short download failed:', err.message);
   });
+});
+
+// Same idea as /admin/render-test-short, but exercises the actual YouTube
+// upload too - always as an unlisted-from-search "private" video (visible
+// only in your own Studio) rather than the real job's "public", specifically
+// so testing this route can never spam real subscribers/search results.
+// TODO: remove this route once the daily job uploads on its own.
+app.get('/admin/upload-test-short', requireAnalyticsAuth, async (req, res) => {
+  let result;
+  try {
+    result = await buildDailyShort();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  if (!result) {
+    return res.json({ uploaded: false, reason: 'Nothing to render - see server logs (no credentials, no music track, already posted today, or nothing new to cover).' });
+  }
+  try {
+    const videoBuffer = fs.readFileSync(result.outPath);
+    const videoId = await uploadShort(videoBuffer, {
+      title: result.title,
+      description: result.description,
+      privacyStatus: 'private',
+    });
+    if (!videoId) {
+      return res.json({ uploaded: false, reason: 'Render succeeded but upload failed or YouTube credentials are missing - see server logs.' });
+    }
+    res.json({ uploaded: true, videoId, studioUrl: `https://studio.youtube.com/video/${videoId}/edit` });
+  } finally {
+    fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
+  }
 });
 
 app.listen(PORT, () => {

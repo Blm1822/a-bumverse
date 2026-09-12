@@ -90,6 +90,48 @@ artist/album is never posted about twice.
 Without credentials, this quietly does nothing - same best-effort shape as
 Discogs/SeatGeek/setlist.fm above.
 
+### Automated daily YouTube Short (optional)
+
+Same "one most-newsworthy thing" pick as the Bluesky post above, rendered
+as a vertical video instead: cover art with a slow zoom, a burned-in
+title/subtitle caption, and a TTS narration mixed over a royalty-free
+music bed - never the actual copyrighted recording, so there's no
+licensing issue. See `youtubeShort.js`, `video.js`, `elevenlabs.js`, and
+`youtube.js`.
+
+1. **Narration voice** - create an [ElevenLabs](https://elevenlabs.io) account,
+   restrict an API key to Text-to-Speech only, and note a voice ID from
+   the Voices tab:
+   ```bash
+   export ELEVENLABS_API_KEY=your-api-key-here
+   export ELEVENLABS_VOICE_ID=your-chosen-voice-id
+   ```
+2. **Background music** - drop a few royalty-free instrumental tracks
+   (e.g. from YouTube's own Audio Library) into `assets/music/` - see that
+   folder's own README. One is picked at random per video.
+3. **YouTube upload** - needs a Google Cloud OAuth app (YouTube Data API v3
+   enabled, an OAuth consent screen, and a Desktop-app OAuth client), plus a
+   one-time manual login to generate a refresh token:
+   ```bash
+   export YOUTUBE_CLIENT_ID=your-client-id-here
+   export YOUTUBE_CLIENT_SECRET=your-client-secret-here
+   export YOUTUBE_REFRESH_TOKEN=your-refresh-token-here
+   ```
+   **Note:** while the Google Cloud OAuth app is in "Testing" mode (the
+   default, and fine for a single-user tool like this), Google caps refresh
+   tokens at 7 days - this needs periodically regenerating via the same
+   one-time login unless the app goes through Google's verification to move
+   to "In production".
+
+Missing any of the three pieces above just means no video gets rendered
+that day - same best-effort shape as everything else in this app. Two
+Basic-Auth-gated diagnostic routes exist for testing this pipeline without
+waiting for the daily scheduler: `/admin/render-test-short` (renders and
+downloads the video) and `/admin/upload-test-short` (renders and uploads
+it to YouTube as **private**, never public) - both reuse the real content-
+selection cascade but never mark anything as posted, so hitting them
+repeatedly is safe.
+
 ## Growing the library
 
 Seed artist lists live in `artists.txt`, `artists_expansion.txt`,

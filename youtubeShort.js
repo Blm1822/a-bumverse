@@ -130,7 +130,14 @@ export async function buildDailyShort() {
       outPath,
     });
 
-    return { outPath, contentType: script.contentType, itemId: script.itemId, url: script.url };
+    return {
+      outPath,
+      contentType: script.contentType,
+      itemId: script.itemId,
+      url: script.url,
+      title: script.title,
+      description: `${script.narration} ${script.url}`,
+    };
   } catch (err) {
     console.error('daily short render failed:', err.message);
     await fs.rm(tmpDir, { recursive: true, force: true });
