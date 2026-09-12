@@ -7,16 +7,25 @@
 // own drawtext filter - the static ffmpeg binary this app ships (ffmpeg-static,
 // a prebuilt johnvansickle.com build, chosen so Railway needs no OS-level
 // ffmpeg install) doesn't compile drawtext in, but does include libass.
+//
+// libass needs an actual font file to draw glyphs, and the node:24-slim
+// container this app deploys on has none installed system-wide - captions
+// rendered fine locally (where a dev machine has fonts) but came out
+// invisible in production. Bundling a font in the repo and pointing the
+// `ass` filter's fontsdir at it (rather than relying on system fontconfig)
+// keeps this self-contained, the same reasoning as ffmpeg-static itself.
 
 import ffmpegPath from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const WIDTH = 1080;
 const HEIGHT = 1920;
 const FPS = 30;
+const FONTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'assets', 'fonts');
 
 // ASS text is its own tiny markup language - {\...} override tags and a
 // handful of literal characters need escaping so a title with, say, a
@@ -45,8 +54,8 @@ PlayResY: ${HEIGHT}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
-Style: Title,DejaVu Sans,72,&H00FFFFFF,&H00000000,&HB0000000,1,3,3,0,2,60,60,520
-Style: Subtitle,DejaVu Sans,46,&H00E8DCF9,&H00000000,&HB0000000,0,3,2,0,2,60,60,420
+Style: Title,Inter,72,&H00FFFFFF,&H00000000,&HB0000000,1,3,3,0,2,60,60,520
+Style: Subtitle,Inter,46,&H00E8DCF9,&H00000000,&HB0000000,0,3,2,0,2,60,60,420
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -86,15 +95,17 @@ export async function renderVideo({ imagePath, title, subtitle, narrationPath, m
   try {
     await new Promise((resolve, reject) => {
       const frames = Math.round(durationSeconds * FPS);
-      // libass's own filter needs its input path escaped for filtergraph
+      // libass's own filter needs its input paths escaped for filtergraph
       // syntax - colons (drive letters on Windows, but also just risky in
       // general) and backslashes are the two characters that matter here.
-      const assFilterPath = assPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+      const escapeFilterPath = (p) => p.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+      const assFilterPath = escapeFilterPath(assPath);
+      const fontsDirFilterPath = escapeFilterPath(FONTS_DIR);
 
       const videoFilter = [
         `scale=${WIDTH * 2}:${HEIGHT * 2}:force_original_aspect_ratio=increase,crop=${WIDTH * 2}:${HEIGHT * 2}`,
         `zoompan=z='min(zoom+0.0006,1.2)':d=${frames}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
-        `ass=${assFilterPath}`,
+        `ass=${assFilterPath}:fontsdir=${fontsDirFilterPath}`,
       ].join(',');
 
       const args = [
