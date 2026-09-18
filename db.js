@@ -244,6 +244,33 @@ if (!db.prepare('PRAGMA table_info(page_views)').all().map((c) => c.name).includ
   }
 }
 
+// Scrapers that rotate through a list of ordinary-looking browser UA strings
+// (a real Chrome build number, nothing "bot"-shaped) defeat both filters
+// above by design - a static UA/referrer pattern can't catch a request that
+// looks exactly like a real visitor. Volume is the tell instead: no human
+// looks at 100+ distinct album/artist pages in a single day (the site's own
+// most-viewed pages top out well under that over a whole week), so any
+// (user-agent, day) pair that does gets retroactively reclassified as bot -
+// re-run on every boot since new scraping days show up over time.
+const BOT_DISTINCT_PATHS_PER_DAY = 100;
+{
+  const volumetric = db
+    .prepare(
+      `SELECT user_agent as userAgent, date(created_at) as day
+       FROM page_views
+       WHERE is_bot = 0 AND user_agent IS NOT NULL
+       GROUP BY user_agent, day
+       HAVING COUNT(DISTINCT path) > ?`
+    )
+    .all(BOT_DISTINCT_PATHS_PER_DAY);
+  const markDayBot = db.prepare(
+    "UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND user_agent = ? AND date(created_at) = ?"
+  );
+  for (const r of volumetric) {
+    markDayBot.run(r.userAgent, r.day);
+  }
+}
+
 // Migration for DBs created before genre/Discogs enrichment existed. NULL
 // means "imported before enrichment existed, or enrichment not yet run on
 // it" - the backfill script (scripts/backfill.js) works through these.
