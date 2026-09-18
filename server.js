@@ -926,6 +926,8 @@ app.get('/analytics', requireAnalyticsAuth, (req, res) => {
     <table>${s.topSearches.map((q) => row(q.query, q.n)).join('') || '<tr><td>No data yet</td></tr>'}</table>
     <h2>Top referrers</h2>
     <table>${s.topReferrers.map((r) => row(r.referrer, r.n)).join('') || '<tr><td>No data yet</td></tr>'}</table>
+    <h2>Top user-agents (last 2 days)</h2>
+    <table>${s.topUserAgents.map((u) => row(`${u.userAgent} (${u.distinctPaths} distinct pages)`, u.n)).join('') || '<tr><td>No data yet</td></tr>'}</table>
   </body></html>`;
   res.send(html);
 });

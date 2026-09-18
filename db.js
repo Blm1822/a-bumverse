@@ -827,7 +827,20 @@ export function analyticsSummary() {
     )
     .all();
 
-  return { totalViews, today, last7d, botViewsLast7d, botViewsTotal, dailyCounts, topPages, topSearches, topReferrers };
+  // Scoped to the last 2 days rather than all-time, since this exists to
+  // diagnose a *current* traffic spike (a crawler that slips past the UA
+  // regex, spread thin across thousands of distinct pages so it never shows
+  // up in topPages/topReferrers) - all-time would dilute it into noise.
+  const topUserAgents = db
+    .prepare(
+      `SELECT user_agent as userAgent, COUNT(*) as n, COUNT(DISTINCT path) as distinctPaths
+       FROM page_views
+       WHERE is_bot = 0 AND user_agent IS NOT NULL AND created_at >= datetime('now', '-2 days')
+       GROUP BY user_agent ORDER BY n DESC LIMIT 15`
+    )
+    .all();
+
+  return { totalViews, today, last7d, botViewsLast7d, botViewsTotal, dailyCounts, topPages, topSearches, topReferrers, topUserAgents };
 }
 
 // random: true gives a fresh random sample each call instead of a fixed
