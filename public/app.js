@@ -718,6 +718,24 @@ async function renderOnThisDayPage() {
   }
 }
 
+// The single most recent loss gets a quieter, larger featured treatment
+// above the grid - same idea as the homepage hero, but toned down (see
+// .memoriam-hero in style.css) rather than the site's usual vibrant promo
+// styling. Everything else stays a plain grid, same restraint as memoriamCard.
+function memoriamHeroHtml(a) {
+  return `
+    <div class="memoriam-hero" id="im-hero">
+      <div class="memoriam-hero-art">${a.imageUrl ? `<img src="${a.imageUrl}" alt="" onerror="this.parentElement.style.visibility='hidden'" />` : ''}</div>
+      <div class="memoriam-hero-body">
+        <div class="memoriam-hero-eyebrow">Remembering</div>
+        <h1>${escapeHtml(a.name)}</h1>
+        <div class="memoriam-hero-years">${escapeHtml(lifespanLabel(a))}</div>
+        <div class="memoriam-hero-meta">${a.disambiguation ? escapeHtml(a.disambiguation) : 'View discography'}</div>
+      </div>
+    </div>
+  `;
+}
+
 async function renderInMemoriamPage() {
   showOnly(inMemoriamPageEl);
   setTitle('In Memoriam');
@@ -727,19 +745,22 @@ async function renderInMemoriamPage() {
     const res = await fetch(url);
     const data = await res.json();
     const items = data.results || [];
+    const [featured, ...rest] = items;
     inMemoriamPageEl.innerHTML = `
       <button class="back-btn" id="im-back-btn">&larr; Back</button>
       <h2 class="section-title">In Memoriam</h2>
       <p class="hint">Musicians in the database whose MusicBrainz profile records that they've passed away, most recent first.</p>
+      ${featured ? memoriamHeroHtml(featured) : ''}
       ${items.length ? `
         <div class="grid" id="im-grid"></div>
         <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="im-load-more">Load more</button></div>
       ` : '<p class="empty">Nothing on file yet.</p>'}
     `;
     document.getElementById('im-back-btn').addEventListener('click', () => history.back());
+    if (featured) document.getElementById('im-hero').addEventListener('click', () => navigate(`/artist/${featured.id}`));
     const grid = document.getElementById('im-grid');
     if (!grid) return;
-    for (const a of items) grid.appendChild(memoriamCard(a));
+    for (const a of rest) grid.appendChild(memoriamCard(a));
 
     let offset = items.length;
     const total = data.total || 0;

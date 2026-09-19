@@ -153,6 +153,45 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
 }
 .hero-cta:hover { background: var(--accent); color: #16142a; filter: none; }
 
+/* Same structure as .hero, muted instead of the vibrant purple/pink
+   gradient - a memorial deserves a quieter tone, not the site's usual
+   energetic promo styling. Still a plain photo+name+years layout, not a
+   ranked/numbered treatment - see memoriamCard's own note on that. */
+.memoriam-hero {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)), var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  margin-bottom: 28px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.memoriam-hero:hover { border-color: var(--muted); }
+.memoriam-hero-art {
+  flex: 0 0 160px;
+  width: 160px;
+  height: 160px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.memoriam-hero-art img { width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(35%); }
+.memoriam-hero-eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.memoriam-hero-body h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.15; }
+.memoriam-hero-years { color: var(--muted); font-size: 16px; margin-bottom: 4px; }
+.memoriam-hero-meta { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+
 .browse-selects { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 48px; }
 .browse-select-group { flex: 1; min-width: 220px; }
 .browse-select-label { display: block; font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
@@ -596,6 +635,9 @@ table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-t
   .hero { flex-direction: column; align-items: flex-start; padding: 20px; }
   .hero-art { width: 120px; height: 120px; }
   .hero-body h1 { font-size: 24px; }
+  .memoriam-hero { flex-direction: column; align-items: flex-start; padding: 20px; }
+  .memoriam-hero-art { width: 120px; height: 120px; }
+  .memoriam-hero-body h1 { font-size: 24px; }
   .rail .card { flex-basis: 148px; width: 148px; }
   table.tracks th, table.tracks td { padding: 8px 6px; font-size: 13px; }
   .chart-meta, .chart-views { font-size: 12px; }
