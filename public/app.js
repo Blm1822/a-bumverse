@@ -749,7 +749,7 @@ async function renderInMemoriamPage() {
     inMemoriamPageEl.innerHTML = `
       <button class="back-btn" id="im-back-btn">&larr; Back</button>
       <h2 class="section-title">In Memoriam</h2>
-      <p class="hint">Musicians in the database whose MusicBrainz profile records that they've passed away, most recent first.</p>
+      <p class="hint">Musicians in the database who have passed away, most recent first.</p>
       ${featured ? memoriamHeroHtml(featured) : ''}
       ${items.length ? `
         <div class="grid" id="im-grid"></div>
@@ -1425,7 +1425,7 @@ async function loadSimilarArtists(id) {
 
 async function renderAlbum(id) {
   showOnly(albumEl);
-  albumEl.innerHTML = '<div class="loading">Loading tracklist and credits… (MusicBrainz is rate-limited, this can take a few seconds)</div>';
+  albumEl.innerHTML = '<div class="loading">Loading tracklist and credits… (this can take a few seconds)</div>';
   try {
     const res = await fetch(`/api/album/${id}`);
     const data = await res.json();
