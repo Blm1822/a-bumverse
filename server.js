@@ -43,6 +43,20 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // which is fine: it's one background stream, still never in parallel with
 // the seed imports above, and it just resumes wherever it left off on the
 // next deploy restart.
+//
+// backfill-lifespan.js also periodically re-checks already-checked living
+// artists now (see LIFESPAN_RECHECK_DAYS in db.js), not just never-checked
+// ones - MusicBrainz's crowd-edited data can record a death weeks after the
+// fact, and without a re-check an artist gets looked at once and then never
+// again, so In Memoriam would just silently miss any death that happened
+// after that one check. Rescheduling this same script to run again a day
+// after it finishes is what actually makes that periodic re-check take
+// effect in practice, rather than depending on how often the app happens to
+// get redeployed - and running it as one self-rescheduling stream (never a
+// second one kicked off before the first exits) keeps the same "never two
+// concurrent MusicBrainz consumers" property as the rest of this chain.
+const LIFESPAN_RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 function launchSeedImports() {
   if (!process.env.DATA_DIR) return;
   const files = ['artists.txt', 'artists_expansion.txt', 'artists_expansion_2.txt', 'artists_expansion_3.txt'];
@@ -53,11 +67,15 @@ function launchSeedImports() {
     child.on('exit', onExit);
   }
 
+  function runLifespanBackfillLoop() {
+    runScript(['scripts/backfill-lifespan.js'], () => {
+      setTimeout(runLifespanBackfillLoop, LIFESPAN_RECHECK_INTERVAL_MS).unref();
+    });
+  }
+
   function runNext(i) {
     if (i >= files.length) {
-      runScript(['scripts/backfill.js'], () => {
-        runScript(['scripts/backfill-lifespan.js'], () => {});
-      });
+      runScript(['scripts/backfill.js'], runLifespanBackfillLoop);
       return;
     }
     runScript(['scripts/import.js', '--file', files[i]], () => runNext(i + 1));

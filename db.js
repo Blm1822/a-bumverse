@@ -688,21 +688,34 @@ export function setArtistLifespan(mbid, { type, bornDate, diedDate } = {}) {
 // artists here are never-fetched stub rows created from track credits
 // (session musicians, songwriters), so there are far more of them than
 // there's API budget to check quickly.
+//
+// A living Person also gets periodically re-checked (not just NULL-checked
+// artists) - otherwise, once an artist is checked, they're never looked at
+// again, so a death MusicBrainz records weeks or months after the fact
+// (crowd-edited data lags real-world news) would never get picked up and
+// In Memoriam would just silently miss it forever. Groups are excluded
+// (a band doesn't "die") and already-recorded deaths don't need re-checking.
+const LIFESPAN_RECHECK_DAYS = 14;
+const LIFESPAN_CHECK_WHERE = `
+  a.life_span_checked_at IS NULL
+  OR (a.type = 'Person' AND a.died_date IS NULL AND a.life_span_checked_at < datetime('now', '-${LIFESPAN_RECHECK_DAYS} days'))
+`;
+
 export function artistsNeedingLifespanCheck(limit = 50) {
   return db
     .prepare(
       `SELECT a.mbid as id, a.name,
        (SELECT COUNT(*) FROM page_views pv WHERE pv.path = '/artist/' || a.mbid AND pv.is_bot = 0) as views
        FROM artists a
-       WHERE a.life_span_checked_at IS NULL
-       ORDER BY views DESC
+       WHERE ${LIFESPAN_CHECK_WHERE}
+       ORDER BY (a.life_span_checked_at IS NULL) DESC, views DESC
        LIMIT ?`
     )
     .all(limit);
 }
 
 export function countArtistsNeedingLifespanCheck() {
-  return db.prepare('SELECT COUNT(*) as n FROM artists WHERE life_span_checked_at IS NULL').get().n;
+  return db.prepare(`SELECT COUNT(*) as n FROM artists a WHERE ${LIFESPAN_CHECK_WHERE}`).get().n;
 }
 
 // Only type = 'Person' - a Group's life-span ending means the band broke up,
