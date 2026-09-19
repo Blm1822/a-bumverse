@@ -102,10 +102,12 @@ async function pickMusicTrack() {
  * mirrors socialPoster.js's "never force filler, never throw" shape.
  */
 export async function buildDailyShort() {
-  const date = todayUTC();
-  if (hasPostedToday(PLATFORM, date)) return null;
-
-  const script = inMemoriamScript() || onThisDayScript() || trendingScript();
+  // A death is a one-time, time-sensitive event worth posting about the
+  // moment it's detected - not something that should wait until tomorrow
+  // just because an On This Day/Trending pick already went out today.
+  // Checked ahead of and regardless of the daily cap below;
+  // hasPostedAboutItem still guarantees the same artist never posts twice.
+  const script = inMemoriamScript() || (hasPostedToday(PLATFORM, todayUTC()) ? null : (onThisDayScript() || trendingScript()));
   if (!script || !script.imageUrls.length) return null;
 
   const musicPath = await pickMusicTrack();

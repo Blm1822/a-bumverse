@@ -68,9 +68,22 @@ function trendingPost() {
 export async function checkAndPostDaily() {
   try {
     const date = todayUTC();
-    if (hasPostedToday(PLATFORM, date)) return;
 
-    const post = inMemoriamPost() || onThisDayPost() || trendingPost();
+    // A death is a one-time, time-sensitive event worth posting the moment
+    // it's detected - not something that should wait until tomorrow just
+    // because an On This Day/Trending pick already went out today. Checked
+    // (and posted) unconditionally, ahead of and regardless of the daily cap
+    // below; hasPostedAboutItem still guarantees the same artist never posts
+    // twice, so this can't loop or repeat.
+    const memoriam = inMemoriamPost();
+    if (memoriam) {
+      const ok = await postToBluesky(memoriam.text, memoriam.url, memoriam.imageUrl, memoriam.imageAlt);
+      if (ok) recordSocialPost(PLATFORM, date, memoriam.contentType, memoriam.itemId);
+      return;
+    }
+
+    if (hasPostedToday(PLATFORM, date)) return;
+    const post = onThisDayPost() || trendingPost();
     if (!post) return; // nothing worth posting today - never force filler content
 
     const ok = await postToBluesky(post.text, post.url, post.imageUrl, post.imageAlt);

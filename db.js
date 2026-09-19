@@ -147,8 +147,7 @@ CREATE TABLE IF NOT EXISTS social_posts (
   posted_date TEXT NOT NULL,
   content_type TEXT NOT NULL,
   item_id TEXT,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (platform, posted_date)
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
@@ -268,6 +267,43 @@ const BOT_DISTINCT_PATHS_PER_DAY = 100;
   );
   for (const r of volumetric) {
     markDayBot.run(r.userAgent, r.day);
+  }
+}
+
+// Migration: social_posts used to have UNIQUE(platform, posted_date), which
+// meant at most one post per platform per day, full stop - including an
+// urgent In Memoriam death announcement that happened to lose the race to
+// an On This Day/Trending pick that already posted that day. Rebuilding
+// without the constraint (SQLite has no ALTER TABLE DROP CONSTRAINT) lets
+// checkAndPostDaily/checkAndPostShort post an In Memoriam item any time a
+// new one is detected, regardless of what else already went out today -
+// see hasPostedToday below for how the "one regular post a day" cap still
+// applies to everything else.
+{
+  const socialPostsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='social_posts'").get();
+  if (socialPostsSchema && socialPostsSchema.sql.includes('UNIQUE')) {
+    db.exec('BEGIN');
+    try {
+      db.exec(`
+        CREATE TABLE social_posts_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          platform TEXT NOT NULL,
+          posted_date TEXT NOT NULL,
+          content_type TEXT NOT NULL,
+          item_id TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO social_posts_new (id, platform, posted_date, content_type, item_id, created_at)
+          SELECT id, platform, posted_date, content_type, item_id, created_at FROM social_posts;
+        DROP TABLE social_posts;
+        ALTER TABLE social_posts_new RENAME TO social_posts;
+        CREATE INDEX IF NOT EXISTS idx_social_posts_item ON social_posts(content_type, item_id);
+      `);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
   }
 }
 
@@ -807,8 +843,14 @@ export function countWatchlistArtists(userId) {
 
 // --- Automated social posting dedup (see socialPoster.js) ---
 
+// Excludes in_memoriam content types deliberately - those bypass the daily
+// cap entirely (see checkAndPostDaily/checkAndPostShort), so "has posted
+// today" here means "has posted a regular (On This Day/Trending) pick
+// today", not "has posted anything at all".
 export function hasPostedToday(platform, dateStr) {
-  return !!db.prepare('SELECT 1 FROM social_posts WHERE platform = ? AND posted_date = ?').get(platform, dateStr);
+  return !!db
+    .prepare("SELECT 1 FROM social_posts WHERE platform = ? AND posted_date = ? AND content_type NOT LIKE 'in_memoriam%'")
+    .get(platform, dateStr);
 }
 
 export function hasPostedAboutItem(contentType, itemId) {
@@ -817,8 +859,7 @@ export function hasPostedAboutItem(contentType, itemId) {
 
 export function recordSocialPost(platform, dateStr, contentType, itemId) {
   db.prepare(
-    `INSERT INTO social_posts (platform, posted_date, content_type, item_id) VALUES (?, ?, ?, ?)
-     ON CONFLICT(platform, posted_date) DO NOTHING`
+    'INSERT INTO social_posts (platform, posted_date, content_type, item_id) VALUES (?, ?, ?, ?)'
   ).run(platform, dateStr, contentType, itemId || null);
 }
 
