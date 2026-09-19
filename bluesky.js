@@ -13,6 +13,10 @@ const BSKY_ROOT = 'https://bsky.social/xrpc';
 // which is only an approximation for non-ASCII text - fine here since every
 // post template this app generates is plain English.
 const MAX_LENGTH = 300;
+// The PDS itself enforces 2MB for an uploaded blob - Wikipedia thumbnails
+// are well under this, but checking ourselves means an unexpectedly large
+// image degrades to a text-only post instead of failing the whole thing.
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 async function getSession() {
   if (!process.env.BLUESKY_IDENTIFIER || !process.env.BLUESKY_APP_PASSWORD) return null;
@@ -46,15 +50,49 @@ export function truncateForBluesky(text) {
   return text.length <= MAX_LENGTH ? text : `${text.slice(0, MAX_LENGTH - 1)}…`;
 }
 
-export async function postToBluesky(text, url) {
+// Fetches `imageUrl` and uploads it as a blob for use in a post embed.
+// Returns the blob reference, or null on any failure/oversized image -
+// the caller falls back to a text-only post rather than losing the post
+// entirely over an image that didn't cooperate.
+async function uploadImage(session, imageUrl) {
+  try {
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) return null;
+    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    const bytes = Buffer.from(await imgRes.arrayBuffer());
+    if (bytes.length > MAX_IMAGE_BYTES) return null;
+
+    const uploadRes = await fetch(`${BSKY_ROOT}/com.atproto.repo.uploadBlob`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType, Authorization: `Bearer ${session.accessJwt}` },
+      body: bytes,
+    });
+    if (!uploadRes.ok) return null;
+    const data = await uploadRes.json();
+    return data.blob;
+  } catch (err) {
+    console.error('Bluesky image upload failed:', err.message);
+    return null;
+  }
+}
+
+export async function postToBluesky(text, url, imageUrl, imageAlt) {
   try {
     const session = await getSession();
     if (!session) return false;
+
+    const blob = imageUrl ? await uploadImage(session, imageUrl) : null;
     const record = {
       $type: 'app.bsky.feed.post',
       text,
       createdAt: new Date().toISOString(),
       facets: url ? linkFacet(text, url) : [],
+      ...(blob && {
+        embed: {
+          $type: 'app.bsky.embed.images',
+          images: [{ image: blob, alt: imageAlt || '' }],
+        },
+      }),
     };
     const res = await fetch(`${BSKY_ROOT}/com.atproto.repo.createRecord`, {
       method: 'POST',

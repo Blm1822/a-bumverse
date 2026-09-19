@@ -30,6 +30,8 @@ function inMemoriamPost() {
     url,
     contentType: 'in_memoriam',
     itemId: artist.id,
+    imageUrl: artist.imageUrl,
+    imageAlt: artist.name,
   };
 }
 
@@ -71,7 +73,7 @@ export async function checkAndPostDaily() {
     const post = inMemoriamPost() || onThisDayPost() || trendingPost();
     if (!post) return; // nothing worth posting today - never force filler content
 
-    const ok = await postToBluesky(post.text, post.url);
+    const ok = await postToBluesky(post.text, post.url, post.imageUrl, post.imageAlt);
     if (ok) recordSocialPost(PLATFORM, date, post.contentType, post.itemId);
   } catch (err) {
     console.error('daily social post check failed:', err.message);
