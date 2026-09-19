@@ -15,6 +15,8 @@
 // with the import/backfill chain in server.js.
 
 import { setArtistDeathFromExternalSource } from './db.js';
+import { checkAndPostDaily } from './socialPoster.js';
+import { checkAndPostShort } from './youtubeShort.js';
 
 const SPARQL_ENDPOINT = 'https://query.wikidata.org/sparql';
 const USER_AGENT = 'Albumverse/0.3.0 (music database project; contact: none)';
@@ -56,7 +58,16 @@ async function checkForDeaths() {
         console.log(`Wikidata death check: ${mbid} died ${diedDate}`);
       }
     }
-    if (updated) console.log(`Wikidata death check: ${updated} artist(s) newly marked`);
+    if (updated) {
+      console.log(`Wikidata death check: ${updated} artist(s) newly marked`);
+      // Don't wait for the posters' own hourly timers to happen to tick -
+      // a freshly-flagged death is exactly the case worth posting about
+      // same-day rather than up to an hour late. Both functions already
+      // re-check hasPostedToday/hasPostedAboutItem themselves, so calling
+      // them here just means "check right now" - never a duplicate post.
+      await checkAndPostDaily().catch((err) => console.error('immediate Bluesky post check failed:', err.message));
+      await checkAndPostShort().catch((err) => console.error('immediate YouTube post check failed:', err.message));
+    }
   } catch (err) {
     console.error('Wikidata death check failed:', err.message);
   }

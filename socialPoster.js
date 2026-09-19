@@ -63,7 +63,7 @@ function trendingPost() {
   };
 }
 
-async function checkAndPostDaily() {
+export async function checkAndPostDaily() {
   try {
     const date = todayUTC();
     if (hasPostedToday(PLATFORM, date)) return;

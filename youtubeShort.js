@@ -152,7 +152,7 @@ export function recordShortPosted(contentType, itemId) {
   recordSocialPost(PLATFORM, todayUTC(), contentType, itemId);
 }
 
-async function checkAndPostShort() {
+export async function checkAndPostShort() {
   let result;
   try {
     result = await buildDailyShort();
