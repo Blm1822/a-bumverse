@@ -684,6 +684,23 @@ export function setArtistLifespan(mbid, { type, bornDate, diedDate } = {}) {
   ).run(type || null, bornDate || null, diedDate || null, mbid);
 }
 
+// Called from wikidataDeaths.js, a faster death signal than the MusicBrainz-
+// based recheck above (Wikidata is typically updated within hours of a
+// notable death, versus MusicBrainz's crowd-edited data taking weeks).
+// Only touches an mbid this app already knows about, and only when it's
+// unambiguously a person (never overwrites a Group by mistake) - also marks
+// it checked so the slower MusicBrainz recheck path doesn't redo the work.
+// Returns whether anything actually changed, so the caller can log real hits.
+export function setArtistDeathFromExternalSource(mbid, diedDate) {
+  const result = db
+    .prepare(
+      `UPDATE artists SET died_date = ?, type = COALESCE(type, 'Person'), life_span_checked_at = datetime('now')
+       WHERE mbid = ? AND (type IS NULL OR type = 'Person') AND (died_date IS NULL OR died_date != ?)`
+    )
+    .run(diedDate, mbid, diedDate);
+  return result.changes > 0;
+}
+
 // Most-viewed first, same prioritization as albumsNeedingEnrichment - most
 // artists here are never-fetched stub rows created from track credits
 // (session musicians, songwriters), so there are far more of them than

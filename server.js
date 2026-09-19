@@ -12,6 +12,7 @@ import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
 import { buildDailyShort, startYoutubePoster } from './youtubeShort.js';
+import { startWikidataDeathCheck } from './wikidataDeaths.js';
 import { uploadShort } from './youtube.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
@@ -1011,4 +1012,5 @@ app.listen(PORT, () => {
   launchSeedImports();
   startSocialPoster();
   startYoutubePoster();
+  startWikidataDeathCheck();
 });

@@ -176,6 +176,7 @@ three seed files on every boot — see `launchSeedImports` in `server.js` —
 so a deploy restart never loses progress.
 
 ## Notes
+- **In Memoriam death detection**: two layered checks keep this current. `scripts/backfill-lifespan.js` (via MusicBrainz) periodically re-checks living artists, not just never-checked ones - but MusicBrainz's crowd-edited data can take weeks to record a death. `wikidataDeaths.js` runs alongside it as a faster signal, querying Wikidata (usually updated within hours of a notable death) for artists with a MusicBrainz ID already in this app's library, and updates immediately on a match. No setup needed - Wikidata's query service is free and keyless.
 - MusicBrainz limits unauthenticated clients to ~1 request/second. The server serializes all calls; a first-time album load (especially fetching per-track writer credits) can take 10-20+ seconds.
 - Performer credits (who played what instrument) are much less consistently filled in on MusicBrainz than composer/lyricist credits — that data gap is MusicBrainz's, not this app's. Discogs enrichment (above) helps fill this in.
 - The MusicBrainz/Discogs response cache is persisted to the same SQLite DB as everything else, so it survives restarts/deploys instead of cold-starting every time.
