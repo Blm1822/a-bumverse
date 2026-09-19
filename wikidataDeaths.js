@@ -48,18 +48,22 @@ export async function fetchRecentDeaths() {
   }));
 }
 
-async function checkForDeaths() {
+// Exported so /admin/check-deaths-now (server.js) can trigger this on
+// demand instead of waiting up to CHECK_INTERVAL_MS for the next scheduled
+// pass - useful right after manually importing an artist whose death is
+// already public knowledge but wasn't in the library yet to be checked.
+export async function checkForDeaths() {
   try {
     const deaths = await fetchRecentDeaths();
-    let updated = 0;
+    const newlyMarked = [];
     for (const { mbid, diedDate } of deaths) {
       if (setArtistDeathFromExternalSource(mbid, diedDate)) {
-        updated++;
+        newlyMarked.push({ mbid, diedDate });
         console.log(`Wikidata death check: ${mbid} died ${diedDate}`);
       }
     }
-    if (updated) {
-      console.log(`Wikidata death check: ${updated} artist(s) newly marked`);
+    if (newlyMarked.length) {
+      console.log(`Wikidata death check: ${newlyMarked.length} artist(s) newly marked`);
       // Don't wait for the posters' own hourly timers to happen to tick -
       // a freshly-flagged death is exactly the case worth posting about
       // same-day rather than up to an hour late. Both functions already
@@ -68,8 +72,10 @@ async function checkForDeaths() {
       await checkAndPostDaily().catch((err) => console.error('immediate Bluesky post check failed:', err.message));
       await checkAndPostShort().catch((err) => console.error('immediate YouTube post check failed:', err.message));
     }
+    return { checked: deaths.length, newlyMarked };
   } catch (err) {
     console.error('Wikidata death check failed:', err.message);
+    return { error: err.message };
   }
 }
 

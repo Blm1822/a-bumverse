@@ -12,7 +12,7 @@ import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
 import { buildDailyShort, startYoutubePoster } from './youtubeShort.js';
-import { startWikidataDeathCheck } from './wikidataDeaths.js';
+import { startWikidataDeathCheck, checkForDeaths } from './wikidataDeaths.js';
 import { uploadShort } from './youtube.js';
 import { getArtistBio, looksMusical } from './wiki.js';
 import { hashPassword, verifyPassword, generateSessionToken, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode } from './auth.js';
@@ -1004,6 +1004,16 @@ app.get('/admin/upload-test-short', requireAnalyticsAuth, async (req, res) => {
   } finally {
     fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
   }
+});
+
+// Manually triggers the Wikidata death check (see wikidataDeaths.js) instead
+// of waiting up to its own 4-hour interval - useful right after importing an
+// artist whose death is already public knowledge, so it doesn't sit unposted
+// until the next scheduled pass. A genuinely new match posts for real
+// (publicly) on both platforms, same as the scheduled check would.
+app.get('/admin/check-deaths-now', requireAnalyticsAuth, async (req, res) => {
+  const result = await checkForDeaths();
+  res.json(result);
 });
 
 app.listen(PORT, () => {
