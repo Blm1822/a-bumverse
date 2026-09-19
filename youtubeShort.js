@@ -14,7 +14,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { inMemoriam, onThisDayAlbums, trendingAlbums, hasPostedToday, hasPostedAboutItem, recordSocialPost } from './db.js';
+import { inMemoriam, onThisDayAlbums, trendingAlbums, hasPostedToday, hasPostedAboutItem, recordSocialPost, artistAlbumCoversForRetrospective } from './db.js';
 import { synthesizeSpeech } from './elevenlabs.js';
 import { renderVideo, getAudioDurationSeconds } from './video.js';
 import { uploadShort } from './youtube.js';
@@ -32,11 +32,15 @@ function inMemoriamScript() {
   const [artist] = inMemoriam(1);
   if (!artist || hasPostedAboutItem('in_memoriam_yt', artist.id)) return null;
   const year = artist.diedDate ? artist.diedDate.slice(0, 4) : '';
+  // Their own photo first (if we have one), then a career-spanning run of
+  // album covers - a retrospective feel rather than one static image.
+  const albumCovers = artistAlbumCoversForRetrospective(artist.id, 4);
+  const imageUrls = [artist.imageUrl, ...albumCovers].filter(Boolean);
   return {
     title: `Remembering ${artist.name}`,
     subtitle: year ? `d. ${year}` : '',
     narration: `Remembering ${artist.name}${year ? `, who passed away in ${year}` : ''}. Explore their full discography on Albumverse.`,
-    imageUrl: artist.imageUrl,
+    imageUrls,
     contentType: 'in_memoriam_yt',
     itemId: artist.id,
     url: `${SITE_URL}/artist/${artist.id}`,
@@ -53,7 +57,7 @@ function onThisDayScript() {
     title: `On This Day: ${album.title}`,
     subtitle: `${album.artist} · ${year}`,
     narration: `On this day in ${year}, ${album.artist} released "${album.title}." See the full tracklist and credits on Albumverse.`,
-    imageUrl: album.coverArtUrl,
+    imageUrls: [album.coverArtUrl].filter(Boolean),
     contentType: 'on_this_day_yt',
     itemId: album.id,
     url: `${SITE_URL}/album/${album.id}`,
@@ -67,18 +71,18 @@ function trendingScript() {
     title: `Trending: ${album.title}`,
     subtitle: album.artist,
     narration: `Trending on Albumverse this week: "${album.title}" by ${album.artist}. See what listeners are saying.`,
-    imageUrl: album.coverArtUrl,
+    imageUrls: [album.coverArtUrl].filter(Boolean),
     contentType: 'trending_yt',
     itemId: album.id,
     url: `${SITE_URL}/album/${album.id}`,
   };
 }
 
-async function downloadToTemp(url, tmpDir) {
+async function downloadToTemp(url, tmpDir, index) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`image fetch ${res.status}`);
   const ext = path.extname(new URL(url).pathname) || '.jpg';
-  const dest = path.join(tmpDir, `cover${ext}`);
+  const dest = path.join(tmpDir, `cover${index}${ext}`);
   await fs.writeFile(dest, Buffer.from(await res.arrayBuffer()));
   return dest;
 }
@@ -102,7 +106,7 @@ export async function buildDailyShort() {
   if (hasPostedToday(PLATFORM, date)) return null;
 
   const script = inMemoriamScript() || onThisDayScript() || trendingScript();
-  if (!script || !script.imageUrl) return null;
+  if (!script || !script.imageUrls.length) return null;
 
   const musicPath = await pickMusicTrack();
   if (!musicPath) return null; // no royalty-free tracks added yet - see assets/music/README.md
@@ -117,12 +121,19 @@ export async function buildDailyShort() {
     const narrationPath = path.join(tmpDir, 'narration.mp3');
     await fs.writeFile(narrationPath, narrationAudio);
 
-    const imagePath = await downloadToTemp(script.imageUrl, tmpDir);
+    // A stale/broken cover art URL shouldn't sink the whole render when
+    // other images are fine - keep whichever ones actually downloaded.
+    const downloads = await Promise.allSettled(
+      script.imageUrls.map((url, i) => downloadToTemp(url, tmpDir, i))
+    );
+    const imagePaths = downloads.filter((d) => d.status === 'fulfilled').map((d) => d.value);
+    if (!imagePaths.length) return null;
+
     const narrationSeconds = await getAudioDurationSeconds(narrationPath);
     const outPath = path.join(tmpDir, 'short.mp4');
 
     await renderVideo({
-      imagePath,
+      imagePaths,
       title: script.title,
       subtitle: script.subtitle,
       narrationPath,

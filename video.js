@@ -83,18 +83,28 @@ export function getAudioDurationSeconds(filePath) {
   });
 }
 
+// However many images are handed in, each segment needs enough screen time
+// for its zoom to read as deliberate rather than a flicker - so a short
+// video (or a very long image list) still caps out at a sane number of
+// segments instead of cutting every few frames.
+const MIN_SEGMENT_SECONDS = 1.5;
+
 /**
- * Renders a vertical video: slow zoom on `imagePath`, a burned-in title/
- * subtitle caption, narration mixed over background music, trimmed to
- * `durationSeconds`.
+ * Renders a vertical video: a slow zoom across one or more images shown in
+ * sequence (a single photo, or a career-spanning run of album covers), a
+ * burned-in title/subtitle caption, narration mixed over background music,
+ * trimmed to `durationSeconds`.
  */
-export async function renderVideo({ imagePath, title, subtitle, narrationPath, musicPath, durationSeconds, outPath }) {
+export async function renderVideo({ imagePaths, title, subtitle, narrationPath, musicPath, durationSeconds, outPath }) {
+  const images = (Array.isArray(imagePaths) ? imagePaths : [imagePaths])
+    .slice(0, Math.max(1, Math.floor(durationSeconds / MIN_SEGMENT_SECONDS)));
+  const segmentSeconds = durationSeconds / images.length;
+
   const assPath = path.join(os.tmpdir(), `albumverse-caption-${Date.now()}-${Math.random().toString(36).slice(2)}.ass`);
   await fs.writeFile(assPath, buildAssFile({ title, subtitle, durationSeconds }));
 
   try {
     await new Promise((resolve, reject) => {
-      const frames = Math.round(durationSeconds * FPS);
       // libass's own filter needs its input paths escaped for filtergraph
       // syntax - colons (drive letters on Windows, but also just risky in
       // general) and backslashes are the two characters that matter here.
@@ -102,19 +112,51 @@ export async function renderVideo({ imagePath, title, subtitle, narrationPath, m
       const assFilterPath = escapeFilterPath(assPath);
       const fontsDirFilterPath = escapeFilterPath(FONTS_DIR);
 
-      const videoFilter = [
-        `scale=${WIDTH * 2}:${HEIGHT * 2}:force_original_aspect_ratio=increase,crop=${WIDTH * 2}:${HEIGHT * 2}`,
-        `zoompan=z='min(zoom+0.0006,1.2)':d=${frames}:s=${WIDTH}x${HEIGHT}:fps=${FPS}`,
-        `ass=${assFilterPath}:fontsdir=${fontsDirFilterPath}`,
-      ].join(',');
+      const segFrames = Math.max(1, Math.round(segmentSeconds * FPS));
+      // Each image is its own zoom-and-crop segment, stitched back into one
+      // stream before the caption gets burned in on top of all of it. No -t
+      // on the per-image inputs below (each is an open-ended `-loop 1`) -
+      // giving each one a fixed duration instead fed zoompan far more raw
+      // frames than intended (the image-loop demuxer's own default framerate
+      // multiplied against zoompan's per-frame `d`), bloating a single
+      // segment well past the whole video's length before concat ever
+      // reached the next one. An explicit trim right after zoompan is a
+      // second, harder guarantee that each segment is exactly segFrames
+      // long regardless - setpts then resets timestamps so concat sees
+      // every segment starting at 0.
+      const segmentFilters = images
+        .map((_, i) =>
+          `[${i}:v]scale=${WIDTH * 2}:${HEIGHT * 2}:force_original_aspect_ratio=increase,crop=${WIDTH * 2}:${HEIGHT * 2},` +
+          `zoompan=z='min(zoom+0.0006,1.2)':d=${segFrames}:s=${WIDTH}x${HEIGHT}:fps=${FPS},trim=end_frame=${segFrames},setpts=PTS-STARTPTS[v${i}]`
+        )
+        .join(';');
+      const concatInputs = images.map((_, i) => `[v${i}]`).join('');
+      const narrationIdx = images.length;
+      const musicIdx = images.length + 1;
+
+      const filterComplex = [
+        segmentFilters,
+        `${concatInputs}concat=n=${images.length}:v=1:a=0[vraw]`,
+        `[vraw]ass=${assFilterPath}:fontsdir=${fontsDirFilterPath}[v]`,
+        `[${musicIdx}:a]volume=0.18[music]`,
+        // duration=longest (not first): narration is always shorter than
+        // durationSeconds by design (END_PADDING_SECONDS in youtubeShort.js),
+        // so `first` cut the whole video off the instant narration ended -
+        // combined with -shortest below, that silently ate the intended
+        // breathing room on every real render. The music loops indefinitely
+        // (-stream_loop -1 above), so it's always the actual longest input;
+        // the final -t durationSeconds is what actually bounds the output.
+        `[${narrationIdx}:a][music]amix=inputs=2:duration=longest:dropout_transition=2[a]`,
+      ].join(';');
+
+      const imageInputArgs = images.flatMap((p) => ['-loop', '1', '-i', p]);
 
       const args = [
         '-y',
-        '-loop', '1', '-i', imagePath,
+        ...imageInputArgs,
         '-i', narrationPath,
         '-stream_loop', '-1', '-i', musicPath,
-        '-filter_complex',
-        `[0:v]${videoFilter}[v];[2:a]volume=0.18[music];[1:a][music]amix=inputs=2:duration=first:dropout_transition=2[a]`,
+        '-filter_complex', filterComplex,
         '-map', '[v]', '-map', '[a]',
         '-t', String(durationSeconds),
         '-c:v', 'libx264', '-pix_fmt', 'yuv420p',

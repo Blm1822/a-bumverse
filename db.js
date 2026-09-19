@@ -1013,6 +1013,25 @@ export function getArtistLocal(mbid) {
   return { ...artist, albums, appearances };
 }
 
+// Used for the In Memoriam video (see youtubeShort.js) - a handful of album
+// covers spread across an artist's career for a retrospective feel, rather
+// than just whichever N albums happen to be earliest.
+export function artistAlbumCoversForRetrospective(mbid, limit = 4) {
+  const covers = db
+    .prepare(
+      `SELECT al.cover_art_url as coverArtUrl
+       FROM albums al
+       JOIN album_artists aa ON aa.album_mbid = al.mbid
+       WHERE aa.artist_mbid = ? AND al.cover_art_url IS NOT NULL
+       ORDER BY al.release_date ASC`
+    )
+    .all(mbid)
+    .map((r) => r.coverArtUrl);
+  if (covers.length <= limit) return covers;
+  const step = (covers.length - 1) / (limit - 1);
+  return Array.from({ length: limit }, (_, i) => covers[Math.round(i * step)]);
+}
+
 // Most-viewed album in the last 7 days, so the homepage spotlight reflects
 // actual visitor interest rather than just whatever imported last. Falls back
 // to the newest album once traffic is too thin to have a real "most viewed".
