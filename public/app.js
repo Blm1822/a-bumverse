@@ -443,7 +443,11 @@ function hashHue(str) {
   return h % 360;
 }
 
-function posterWrap(imgUrl, label) {
+// badgeHtml (e.g. a rating pill) is re-appended after showPlaceholder's own
+// wrap.innerHTML reset, so a broken cover-art URL discovered after the fact
+// (the error event fires async, once the badge may already be in the DOM)
+// never silently wipes it out.
+function posterWrap(imgUrl, label, badgeHtml) {
   const wrap = document.createElement('div');
   wrap.className = 'card-img-wrap';
 
@@ -455,6 +459,7 @@ function posterWrap(imgUrl, label) {
     initial.className = 'card-placeholder';
     initial.textContent = (label || '?').trim().charAt(0).toUpperCase();
     wrap.appendChild(initial);
+    if (badgeHtml) wrap.insertAdjacentHTML('beforeend', badgeHtml);
   }
 
   if (imgUrl) {
@@ -464,16 +469,22 @@ function posterWrap(imgUrl, label) {
     img.addEventListener('error', showPlaceholder);
     img.src = imgUrl;
     wrap.appendChild(img);
+    if (badgeHtml) wrap.insertAdjacentHTML('beforeend', badgeHtml);
   } else {
     showPlaceholder();
   }
   return wrap;
 }
 
+function ratingBadgeHtml(r) {
+  if (!r || !r.ratingCount) return '';
+  return `<div class="card-rating-badge"><span class="star">&#9733;</span>${escapeHtml(String(r.avgRating))}</div>`;
+}
+
 function albumCard(r) {
   const card = document.createElement('div');
   card.className = 'card';
-  card.appendChild(posterWrap(r.coverArtUrl, r.title));
+  card.appendChild(posterWrap(r.coverArtUrl, r.title, ratingBadgeHtml(r)));
   const body = document.createElement('div');
   body.className = 'card-body';
   body.innerHTML = `
@@ -537,6 +548,7 @@ async function loadHero() {
       return;
     }
     heroEl.classList.remove('hidden');
+    heroEl.style.setProperty('--backdrop', data.imageUrl ? `url("${data.imageUrl}")` : 'none');
     heroEl.innerHTML = `
       <div class="hero-art">${data.imageUrl ? `<img src="${data.imageUrl}" alt="" onerror="this.parentElement.style.visibility='hidden'" />` : ''}</div>
       <div class="hero-body">
@@ -565,14 +577,14 @@ async function loadTrending() {
     }
     section.classList.remove('hidden');
     rail.innerHTML = '';
-    for (const t of items) {
+    items.forEach((t, i) => {
       const pill = document.createElement('button');
       pill.type = 'button';
       pill.className = 'trend-pill';
-      pill.textContent = t.query;
+      pill.innerHTML = `<span class="trend-pill-rank">${i + 1}</span>${escapeHtml(t.query)}`;
       pill.addEventListener('click', () => navigate(`/search?q=${encodeURIComponent(t.query)}`));
       rail.appendChild(pill);
-    }
+    });
   } catch {
     section.classList.add('hidden');
   }
@@ -624,9 +636,28 @@ function updateBrowseSelectSectionVisibility() {
   document.getElementById('browse-select-section').classList.toggle('hidden', !anyVisible);
 }
 
+// Same gradient-tile treatment as browseTilesHtml() below, but decades get a
+// steady hue ramp across the grid (oldest = coolest) instead of a per-label
+// hash - a handful of adjacent decades hashed independently tends to land on
+// near-identical hues too often to read as "browse", where genres (many more
+// of them, order doesn't mean anything) don't have that problem.
+function decadeTilesHtml(items) {
+  return items
+    .map((d, i) => {
+      const hue = Math.round((i / Math.max(1, items.length - 1)) * 280);
+      return `
+        <button type="button" class="browse-tile" data-value="${d.decade}"
+          style="background: linear-gradient(135deg, hsl(${hue}, 60%, 34%), hsl(${(hue + 35) % 360}, 60%, 18%))">
+          <span class="browse-tile-label">${d.decade}s</span>
+          <span class="browse-tile-count">${d.n} album${d.n === 1 ? '' : 's'}</span>
+        </button>`;
+    })
+    .join('');
+}
+
 async function loadDecades() {
   const group = document.getElementById('decades-section');
-  const select = document.getElementById('decades-select');
+  const tiles = document.getElementById('decades-tiles');
   try {
     const res = await fetch('/api/decades');
     const data = await res.json();
@@ -638,8 +669,7 @@ async function loadDecades() {
     }
     group.classList.remove('hidden');
     updateBrowseSelectSectionVisibility();
-    select.innerHTML = '<option value="">Choose a decade&hellip;</option>'
-      + items.map((d) => `<option value="${d.decade}">${d.decade}s (${d.n})</option>`).join('');
+    tiles.innerHTML = decadeTilesHtml(items);
   } catch {
     group.classList.add('hidden');
     updateBrowseSelectSectionVisibility();
@@ -723,8 +753,9 @@ async function renderOnThisDayPage() {
 // .memoriam-hero in style.css) rather than the site's usual vibrant promo
 // styling. Everything else stays a plain grid, same restraint as memoriamCard.
 function memoriamHeroHtml(a) {
+  const backdropStyle = a.imageUrl ? ` style="--backdrop:url('${escapeHtml(a.imageUrl)}')"` : '';
   return `
-    <div class="memoriam-hero" id="im-hero">
+    <div class="memoriam-hero" id="im-hero"${backdropStyle}>
       <div class="memoriam-hero-art">${a.imageUrl ? `<img src="${a.imageUrl}" alt="" onerror="this.parentElement.style.visibility='hidden'" />` : ''}</div>
       <div class="memoriam-hero-body">
         <div class="memoriam-hero-eyebrow">Remembering</div>
@@ -1081,10 +1112,11 @@ async function renderTrendingPage() {
 
       const rank = document.createElement('div');
       rank.className = 'chart-rank';
+      if (i < 3) rank.classList.add(`top-${i + 1}`);
       rank.textContent = i + 1;
       row.appendChild(rank);
 
-      const thumb = posterWrap(r.coverArtUrl, r.title);
+      const thumb = posterWrap(r.coverArtUrl, r.title, ratingBadgeHtml(r));
       thumb.classList.add('chart-thumb');
       row.appendChild(thumb);
 
@@ -1134,6 +1166,7 @@ async function renderTopRatedPage() {
 
       const rank = document.createElement('div');
       rank.className = 'chart-rank';
+      if (i < 3) rank.classList.add(`top-${i + 1}`);
       rank.textContent = i + 1;
       row.appendChild(rank);
 
@@ -1150,8 +1183,10 @@ async function renderTopRatedPage() {
       row.appendChild(info);
 
       const rating = document.createElement('div');
-      rating.className = 'chart-views';
-      rating.textContent = `${r.average}/10 (${r.count} rating${r.count === 1 ? '' : 's'})`;
+      rating.innerHTML = `
+        <div class="chart-score"><span class="star">&#9733;</span>${escapeHtml(String(r.average))}</div>
+        <span class="chart-score-count">${r.count} rating${r.count === 1 ? '' : 's'}</span>
+      `;
       row.appendChild(rating);
 
       row.addEventListener('click', () => navigate(`/album/${r.id}`));
@@ -1162,9 +1197,27 @@ async function renderTopRatedPage() {
   }
 }
 
+// Genre order carries no meaning (alphabetical/popularity), so each tile's
+// hue comes from hashing its own name (same idea as posterWrap's placeholder
+// color) rather than a ramp across the grid - keeps a given genre's color
+// stable across renders instead of shifting with whatever's nearby.
+function browseTilesHtml(items) {
+  return items
+    .map((g) => {
+      const hue = hashHue(g.genre);
+      return `
+        <button type="button" class="browse-tile" data-value="${escapeHtml(g.genre)}"
+          style="background: linear-gradient(135deg, hsl(${hue}, 55%, 32%), hsl(${(hue + 35) % 360}, 55%, 17%))">
+          <span class="browse-tile-label">${escapeHtml(g.genre)}</span>
+          <span class="browse-tile-count">${g.n} album${g.n === 1 ? '' : 's'}</span>
+        </button>`;
+    })
+    .join('');
+}
+
 async function loadGenres() {
   const group = document.getElementById('genres-section');
-  const select = document.getElementById('genres-select');
+  const tiles = document.getElementById('genres-tiles');
   try {
     const res = await fetch('/api/genres');
     const data = await res.json();
@@ -1176,8 +1229,7 @@ async function loadGenres() {
     }
     group.classList.remove('hidden');
     updateBrowseSelectSectionVisibility();
-    select.innerHTML = '<option value="">Choose a genre&hellip;</option>'
-      + items.map((g) => `<option value="${escapeHtml(g.genre)}">${escapeHtml(g.genre)} (${g.n})</option>`).join('');
+    tiles.innerHTML = browseTilesHtml(items);
   } catch {
     group.classList.add('hidden');
     updateBrowseSelectSectionVisibility();
@@ -1279,18 +1331,27 @@ async function renderSearch(query) {
     const res = await fetch(searchUrl);
     const data = await res.json();
     if (!data.results || !data.results.length) {
-      resultsEl.innerHTML = '<p class="empty">No albums found.</p>';
+      resultsEl.innerHTML = `
+        <button class="back-btn" id="search-back-btn">&larr; Back</button>
+        <h2 class="section-title">Search results</h2>
+        <p class="empty">No albums found for &ldquo;${escapeHtml(query)}&rdquo;.</p>
+      `;
+      document.getElementById('search-back-btn').addEventListener('click', () => history.back());
       return;
     }
+    const total = data.total || data.results.length;
     resultsEl.innerHTML = `
+      <button class="back-btn" id="search-back-btn">&larr; Back</button>
+      <h2 class="section-title">Search results for &ldquo;${escapeHtml(query)}&rdquo;</h2>
+      <p class="page-count">${total.toLocaleString()} album${total === 1 ? '' : 's'} found</p>
       <div class="grid" id="search-grid"></div>
       <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="search-load-more">Load more</button></div>
     `;
+    document.getElementById('search-back-btn').addEventListener('click', () => history.back());
     const grid = document.getElementById('search-grid');
     for (const r of data.results) grid.appendChild(albumCard(r));
 
     let offset = data.results.length;
-    const total = data.total || 0;
     const button = document.getElementById('search-load-more');
     button.parentElement.classList.toggle('hidden', offset >= total);
     button.addEventListener('click', async () => {
@@ -1314,7 +1375,7 @@ async function renderArtist(id) {
 
     artistEl.innerHTML = `
       <button class="back-btn" id="artist-back-btn">&larr; Back</button>
-      <div class="album-head">
+      <div class="album-head"${data.coverArtUrl ? ` style="--backdrop:url('${escapeHtml(data.coverArtUrl)}')"` : ''}>
         ${data.coverArtUrl ? `<img src="${data.coverArtUrl}" alt="" onerror="this.style.visibility='hidden'" />` : ''}
         <div>
           <h2>${escapeHtml(data.name)}</h2>
@@ -1451,7 +1512,7 @@ async function renderAlbum(id) {
 
     albumEl.innerHTML = `
       <button class="back-btn" id="back-btn">&larr; Back</button>
-      <div class="album-head">
+      <div class="album-head"${data.coverArtUrl ? ` style="--backdrop:url('${escapeHtml(data.coverArtUrl)}')"` : ''}>
         <img src="${data.coverArtUrl}" alt="" onerror="this.style.visibility='hidden'" />
         <div>
           <h2>${escapeHtml(data.title)}</h2>
@@ -2001,11 +2062,15 @@ for (const link of [navArtists, navRecent, navTrending, navTopRated, navOnThisDa
   });
 }
 
-document.getElementById('decades-select').addEventListener('change', (e) => {
-  if (e.target.value) navigate(`/decade/${e.target.value}`);
+// Delegated (rather than bound per-tile) since loadDecades()/loadGenres()
+// replace these containers' innerHTML on every home render/refresh.
+document.getElementById('decades-tiles').addEventListener('click', (e) => {
+  const tile = e.target.closest('.browse-tile');
+  if (tile) navigate(`/decade/${tile.dataset.value}`);
 });
-document.getElementById('genres-select').addEventListener('change', (e) => {
-  if (e.target.value) navigate(`/genre?name=${encodeURIComponent(e.target.value)}`);
+document.getElementById('genres-tiles').addEventListener('click', (e) => {
+  const tile = e.target.closest('.browse-tile');
+  if (tile) navigate(`/genre?name=${encodeURIComponent(tile.dataset.value)}`);
 });
 
 route();

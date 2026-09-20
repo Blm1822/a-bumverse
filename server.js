@@ -937,6 +937,14 @@ app.get('/analytics', requireAnalyticsAuth, (req, res) => {
       Separately: ${s.botViewsLast7d} bot views in the last 7 days, ${s.botViewsTotal} all-time
       &mdash; that's mostly search engines indexing the site, which is a good sign, not a problem.
     </p>
+    <h2>Signed-up users</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${s.usersToday}</div><div class="l">signups today</div></div>
+      <div class="stat"><div class="n">${s.usersLast7d}</div><div class="l">signups (7 days)</div></div>
+      <div class="stat"><div class="n">${s.totalUsers.toLocaleString()}</div><div class="l">accounts all-time</div></div>
+    </div>
+    <h2>Recent signups</h2>
+    <table>${s.recentSignups.map((u) => row(u.username, u.createdAt)).join('') || '<tr><td>No signups yet</td></tr>'}</table>
     <h2>Daily views (last 14 days)</h2>
     <table>${s.dailyCounts.map((d) => row(d.day, d.n)).join('')}</table>
     <h2>Top albums / artists</h2>

@@ -479,7 +479,7 @@ export function searchLocal(query, limit = 24, offset = 0) {
   const like = `%${query}%`;
   return db
     .prepare(
-      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl${ratingCols()}
        FROM albums
        WHERE title LIKE ? COLLATE NOCASE OR artist_credit LIKE ? COLLATE NOCASE
        ORDER BY release_date ASC
@@ -501,7 +501,7 @@ export function countSearchLocal(query) {
 export function recentlyAdded(limit = 12) {
   return db
     .prepare(
-      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl${ratingCols()}
        FROM albums
        ORDER BY added_at DESC, rowid DESC
        LIMIT ?`
@@ -678,7 +678,7 @@ export function countReviewsByUser(userId) {
 export function onThisDayAlbums(limit = 60, offset = 0) {
   return db
     .prepare(
-      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl${ratingCols()}
        FROM albums
        WHERE length(release_date) = 10 AND strftime('%m-%d', release_date) = strftime('%m-%d', 'now')
        ORDER BY release_date ASC
@@ -811,7 +811,7 @@ export function isInWatchlist(userId, itemType, itemId) {
 export function getWatchlistAlbums(userId, limit = 60, offset = 0) {
   return db
     .prepare(
-      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl${ratingCols('al.')}
        FROM watchlist w JOIN albums al ON al.mbid = w.item_id
        WHERE w.user_id = ? AND w.item_type = 'album'
        ORDER BY w.created_at DESC, w.id DESC
@@ -938,7 +938,18 @@ export function analyticsSummary() {
     )
     .all();
 
-  return { totalViews, today, last7d, botViewsLast7d, botViewsTotal, dailyCounts, topPages, topSearches, topReferrers, topUserAgents };
+  const totalUsers = db.prepare('SELECT COUNT(*) as n FROM users').get().n;
+  const usersToday = db.prepare("SELECT COUNT(*) as n FROM users WHERE created_at >= datetime('now', 'start of day')").get().n;
+  const usersLast7d = db.prepare("SELECT COUNT(*) as n FROM users WHERE created_at >= datetime('now', '-7 days')").get().n;
+
+  const recentSignups = db
+    .prepare('SELECT username, created_at as createdAt FROM users ORDER BY created_at DESC, id DESC LIMIT 15')
+    .all();
+
+  return {
+    totalViews, today, last7d, botViewsLast7d, botViewsTotal, dailyCounts, topPages, topSearches, topReferrers, topUserAgents,
+    totalUsers, usersToday, usersLast7d, recentSignups,
+  };
 }
 
 // random: true gives a fresh random sample each call instead of a fixed
@@ -1003,7 +1014,7 @@ export function countArtistsWithAlbums() {
 export function recentlyAddedPage(limit = 60, offset = 0) {
   return db
     .prepare(
-      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl${ratingCols()}
        FROM albums
        ORDER BY added_at DESC, rowid DESC
        LIMIT ? OFFSET ?`
@@ -1027,7 +1038,7 @@ export function getArtistLocal(mbid) {
 
   const albums = db
     .prepare(
-      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl${ratingCols('al.')}
        FROM albums al
        JOIN album_artists aa ON aa.album_mbid = al.mbid
        WHERE aa.artist_mbid = ?
@@ -1041,7 +1052,7 @@ export function getArtistLocal(mbid) {
   // artist would land on an empty page.
   const appearances = db
     .prepare(
-      `SELECT DISTINCT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+      `SELECT DISTINCT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl${ratingCols('al.')}
        FROM albums al
        JOIN tracks t ON t.album_mbid = al.mbid
        JOIN track_credits tc ON tc.track_id = t.id
@@ -1089,6 +1100,17 @@ const ARTIST_IMAGE_SQL = `COALESCE(a.wiki_image_url, (
   ORDER BY al.release_date DESC LIMIT 1
 ))`;
 
+// Lightweight rating badge for album cards everywhere (grid/rail), as
+// correlated subqueries rather than a JOIN + GROUP BY - simpler to drop into
+// each list query below without disturbing its own WHERE/GROUP BY/ORDER BY,
+// and albums have few enough reviews that the per-row subquery cost is
+// negligible. `prefix` is whatever the enclosing query's own albums-table
+// alias is (e.g. 'al.'), or '' when the query selects from albums unaliased.
+function ratingCols(prefix = '') {
+  return `, ROUND((SELECT AVG(rating) FROM reviews WHERE album_mbid = ${prefix}mbid), 1) as avgRating,
+       (SELECT COUNT(*) FROM reviews WHERE album_mbid = ${prefix}mbid) as ratingCount`;
+}
+
 export function featuredArtist() {
   const topViewed = db
     .prepare(
@@ -1129,7 +1151,7 @@ export function featuredArtist() {
 export function trendingAlbums(limit = 20) {
   return db
     .prepare(
-      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl,
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl${ratingCols('al.')},
        COUNT(pv.id) as views
        FROM page_views pv
        JOIN albums al ON pv.path = '/album/' || al.mbid
@@ -1190,7 +1212,7 @@ export function decadeCounts() {
 export function albumsByDecade(decade, limit = 60, offset = 0) {
   return db
     .prepare(
-      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl${ratingCols()}
        FROM albums
        WHERE release_date >= ? AND release_date < ?
        ORDER BY title COLLATE NOCASE ASC
@@ -1227,7 +1249,7 @@ export function similarAlbums(albumMbid, genres, limit = 12) {
   const placeholders = genres.map(() => '?').join(',');
   return db
     .prepare(
-      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl,
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl${ratingCols('al.')},
        COUNT(DISTINCT ag.genre) as sharedGenres
        FROM albums al
        JOIN album_genres ag ON ag.album_mbid = al.mbid
@@ -1275,7 +1297,7 @@ export function similarArtists(artistMbid, limit = 12) {
 export function albumsByGenre(genre, limit = 60) {
   return db
     .prepare(
-      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl${ratingCols('al.')}
        FROM albums al
        JOIN album_genres ag ON ag.album_mbid = al.mbid
        WHERE ag.genre = ? COLLATE NOCASE
