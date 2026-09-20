@@ -10,7 +10,7 @@
 // (see bluesky.js) just means this quietly does nothing, same "best-effort"
 // shape as every other optional integration in this app.
 
-import { inMemoriam, onThisDayAlbums, trendingAlbums, hasPostedToday, hasPostedAboutItem, recordSocialPost } from './db.js';
+import { inMemoriam, onThisDayAlbumsForSocial, trendingAlbumsForSocial, hasPostedToday, hasPostedAboutItem, recordSocialPost } from './db.js';
 import { postToBluesky, truncateForBluesky } from './bluesky.js';
 
 const SITE_URL = process.env.SITE_URL || 'https://albumverse.com';
@@ -36,7 +36,12 @@ function inMemoriamPost() {
 }
 
 function onThisDayPost() {
-  const albums = onThisDayAlbums(10);
+  // Classical excluded here (but not on the site's own On This Day page) -
+  // its catalog is wildly overrepresented (see excludeClassicalSql() in
+  // db.js), so an unfiltered pick skews toward it far more than real
+  // listener interest would justify for something meant to read as broadly
+  // recognizable.
+  const albums = onThisDayAlbumsForSocial(10);
   if (!albums.length) return null;
   // Most recent release (last in the release_date-ASC list) reads as the
   // more recognizable pick more often than the oldest, absent any other
@@ -54,7 +59,7 @@ function onThisDayPost() {
 }
 
 function trendingPost() {
-  const [album] = trendingAlbums(1);
+  const [album] = trendingAlbumsForSocial(1);
   if (!album || !album.views || hasPostedAboutItem('trending', album.id)) return null;
   const url = `${SITE_URL}/album/${album.id}`;
   return {

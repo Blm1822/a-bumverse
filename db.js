@@ -687,6 +687,21 @@ export function onThisDayAlbums(limit = 60, offset = 0) {
     .all(limit, offset);
 }
 
+// Same "on this day" match as onThisDayAlbums(), minus classical picks - see
+// excludeClassicalSql(). Used only by socialPoster.js/youtubeShort.js.
+export function onThisDayAlbumsForSocial(limit = 60) {
+  return db
+    .prepare(
+      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl
+       FROM albums
+       WHERE length(release_date) = 10 AND strftime('%m-%d', release_date) = strftime('%m-%d', 'now')
+         AND ${excludeClassicalSql()}
+       ORDER BY release_date ASC
+       LIMIT ?`
+    )
+    .all(limit);
+}
+
 export function countOnThisDayAlbums() {
   return db
     .prepare(
@@ -1111,6 +1126,19 @@ function ratingCols(prefix = '') {
        (SELECT COUNT(*) FROM reviews WHERE album_mbid = ${prefix}mbid) as ratingCount`;
 }
 
+// Excludes MusicBrainz genre-tagged classical albums - used only by the
+// social posters' On This Day/Trending picks (see socialPoster.js,
+// youtubeShort.js), not the on-site pages of the same name. Classical
+// composers' catalogs are wildly overrepresented in the albums table
+// (MusicBrainz treats every orchestra's every recording of the same work as
+// its own release-group - see scripts/import.js), which skews both "on this
+// day" date matches and raw view counts toward them despite that being a
+// catalog-size artifact, not real listener interest - not what a social post
+// aiming for a broadly recognizable pick wants.
+function excludeClassicalSql(prefix = '') {
+  return `NOT EXISTS (SELECT 1 FROM album_genres ag WHERE ag.album_mbid = ${prefix}mbid AND ag.genre LIKE '%classical%')`;
+}
+
 export function featuredArtist() {
   const topViewed = db
     .prepare(
@@ -1156,6 +1184,26 @@ export function trendingAlbums(limit = 20) {
        FROM page_views pv
        JOIN albums al ON pv.path = '/album/' || al.mbid
        WHERE pv.is_bot = 0 AND pv.created_at >= datetime('now', '-7 days')
+       GROUP BY al.mbid
+       ORDER BY views DESC
+       LIMIT ?`
+    )
+    .all(limit);
+}
+
+// Same ranking as trendingAlbums(), minus classical picks - see
+// excludeClassicalSql(). Used only by socialPoster.js/youtubeShort.js: raw
+// view counts on a catalog this classical-heavy reward catalog size as much
+// as real listener interest, which isn't what a social post wants.
+export function trendingAlbumsForSocial(limit = 20) {
+  return db
+    .prepare(
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl,
+       COUNT(pv.id) as views
+       FROM page_views pv
+       JOIN albums al ON pv.path = '/album/' || al.mbid
+       WHERE pv.is_bot = 0 AND pv.created_at >= datetime('now', '-7 days')
+         AND ${excludeClassicalSql('al.')}
        GROUP BY al.mbid
        ORDER BY views DESC
        LIMIT ?`

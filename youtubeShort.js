@@ -14,7 +14,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { inMemoriam, onThisDayAlbums, trendingAlbums, hasPostedToday, hasPostedAboutItem, recordSocialPost, artistAlbumCoversForRetrospective } from './db.js';
+import { inMemoriam, onThisDayAlbumsForSocial, trendingAlbumsForSocial, hasPostedToday, hasPostedAboutItem, recordSocialPost, artistAlbumCoversForRetrospective } from './db.js';
 import { synthesizeSpeech } from './elevenlabs.js';
 import { renderVideo, getAudioDurationSeconds } from './video.js';
 import { uploadShort } from './youtube.js';
@@ -48,7 +48,10 @@ function inMemoriamScript() {
 }
 
 function onThisDayScript() {
-  const albums = onThisDayAlbums(10);
+  // Classical excluded (see the matching note in socialPoster.js's
+  // onThisDayPost()) - not filtered on the site's own On This Day page,
+  // only here.
+  const albums = onThisDayAlbumsForSocial(10);
   if (!albums.length) return null;
   const album = albums[albums.length - 1];
   if (hasPostedAboutItem('on_this_day_yt', album.id)) return null;
@@ -65,7 +68,7 @@ function onThisDayScript() {
 }
 
 function trendingScript() {
-  const [album] = trendingAlbums(1);
+  const [album] = trendingAlbumsForSocial(1);
   if (!album || !album.views || hasPostedAboutItem('trending_yt', album.id)) return null;
   return {
     title: `Trending: ${album.title}`,
