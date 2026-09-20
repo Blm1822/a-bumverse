@@ -99,6 +99,16 @@ CREATE TABLE IF NOT EXISTS mb_cache (
   expires_at INTEGER NOT NULL
 );
 
+-- Durable one-off flags (e.g. "the seed artist-list imports have fully
+-- completed at least once") that need to survive restarts/deploys, same
+-- reasoning as mb_cache above - a plain key/value table rather than a
+-- dedicated column or table per flag, since these are rare and unrelated to
+-- each other.
+CREATE TABLE IF NOT EXISTS app_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
@@ -1365,6 +1375,17 @@ export function stats() {
   const albums = db.prepare('SELECT COUNT(*) as n FROM albums').get().n;
   const tracks = db.prepare('SELECT COUNT(*) as n FROM tracks').get().n;
   return { artists, albums, tracks };
+}
+
+export function getAppState(key) {
+  const row = db.prepare('SELECT value FROM app_state WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+export function setAppState(key, value) {
+  db.prepare(
+    'INSERT INTO app_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(key, value);
 }
 
 export default db;

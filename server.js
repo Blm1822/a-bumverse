@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
@@ -24,10 +24,24 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 
 // Deploys replace the whole running container, which kills any detached bulk-import
 // process from a previous deploy. Rather than depending on someone manually
-// re-launching it over SSH, resume the seed imports automatically on every boot -
-// the import script is idempotent (skips albums already saved), so this is cheap
-// once a given artist's catalog is mostly in. Only runs when DATA_DIR is set
-// (i.e. against a real persistent volume) so local dev doesn't auto-hammer MusicBrainz.
+// re-launching it over SSH, resume the seed imports automatically on every boot
+// until they've fully finished at least once - the import script is idempotent
+// (skips albums already saved), so a resumed run is cheap for most artists. Only
+// runs when DATA_DIR is set (i.e. against a real persistent volume) so local dev
+// doesn't auto-hammer MusicBrainz.
+//
+// "Cheap once mostly in" isn't true for classical composers, though: MusicBrainz
+// treats every orchestra's every recording of the same work as its own
+// release-group (scripts/import.js's own comment notes Bach alone matches
+// ~5,000), so unlike a band with a fixed, exhaustible catalog, every re-run adds
+// up to another --max-per-artist (40) *new* albums for each of them, forever -
+// which is what silently made the catalog (and, worse, the social posters' picks
+// before they started excluding classical - see socialPoster.js) skew far more
+// classical than the curated artist list itself ever intended. So this now
+// tracks completion (app_state's 'seed_imports_done' flag, via
+// getAppState/setAppState in db.js) and only resumes the seed-file chain below
+// while that's unset - once every file has fully finished a single time, later
+// boots skip straight to the backfill chain instead of re-running it forever.
 //
 // Runs the seed files one at a time, not in parallel - two simultaneous import
 // processes each pacing their own MusicBrainz calls at ~1.3s meant real live
@@ -35,15 +49,16 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // album lookups while both were running). One background stream leaves the
 // rest of MusicBrainz's budget for actual traffic.
 //
-// Once every seed file is caught up (fast on a warm library, since the
-// import script skips albums already saved), the chain moves on to
-// scripts/backfill.js (genre/Discogs data for albums saved before that
-// enrichment existed) and then scripts/backfill-lifespan.js (artist
-// type/birth/death, for "In Memoriam"). On a large library these can each
-// run for a very long time (same order of magnitude as the initial import),
-// which is fine: it's one background stream, still never in parallel with
-// the seed imports above, and it just resumes wherever it left off on the
-// next deploy restart.
+// Once every seed file is caught up, the chain moves on to scripts/backfill.js
+// (genre/Discogs data for albums saved before that enrichment existed) and then
+// scripts/backfill-lifespan.js (artist type/birth/death, for "In Memoriam").
+// Those two keep running/rescheduling on every boot regardless of the seed-import
+// flag above - unlike the seed artist list, they operate on whatever's actually
+// in the library and have no unbounded-growth failure mode of their own. On a
+// large library these can each run for a very long time (same order of
+// magnitude as the initial import), which is fine: it's one background stream,
+// still never in parallel with the seed imports above, and it just resumes
+// wherever it left off on the next deploy restart.
 //
 // backfill-lifespan.js also periodically re-checks already-checked living
 // artists now (see LIFESPAN_RECHECK_DAYS in db.js), not just never-checked
@@ -57,6 +72,7 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // second one kicked off before the first exits) keeps the same "never two
 // concurrent MusicBrainz consumers" property as the rest of this chain.
 const LIFESPAN_RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const SEED_IMPORTS_DONE_KEY = 'seed_imports_done';
 
 function launchSeedImports() {
   if (!process.env.DATA_DIR) return;
@@ -74,15 +90,24 @@ function launchSeedImports() {
     });
   }
 
+  function runBackfillChain() {
+    runScript(['scripts/backfill.js'], runLifespanBackfillLoop);
+  }
+
   function runNext(i) {
     if (i >= files.length) {
-      runScript(['scripts/backfill.js'], runLifespanBackfillLoop);
+      setAppState(SEED_IMPORTS_DONE_KEY, 'true');
+      runBackfillChain();
       return;
     }
     runScript(['scripts/import.js', '--file', files[i]], () => runNext(i + 1));
   }
 
-  runNext(0);
+  if (getAppState(SEED_IMPORTS_DONE_KEY) === 'true') {
+    runBackfillChain();
+  } else {
+    runNext(0);
+  }
 }
 
 const LOCAL_RESULT_FLOOR = 6; // below this, also ask MusicBrainz live and merge in what we're missing
