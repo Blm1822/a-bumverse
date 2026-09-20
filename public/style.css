@@ -798,6 +798,11 @@ table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-t
   .top-nav { gap: 16px; }
   #search-form { max-width: 100%; }
   main { padding: 16px; }
+  /* .grid's 200px minmax collapses to a single column under ~430px of
+     available width, so each square card-img-wrap (aspect-ratio 1/1) renders
+     nearly full-viewport-width - a multi-photo artist mosaic like *NSYNC's
+     ends up dominating the whole screen. Force at least 2 columns instead. */
+  .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
   .album-head { flex-direction: column; }
   .album-head img { width: 140px; height: 140px; }
   .hero { flex-direction: column; align-items: flex-start; padding: 20px; }
