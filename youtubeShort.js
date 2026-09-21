@@ -136,8 +136,8 @@ export async function buildDailyShort() {
   await fs.mkdir(tmpDir, { recursive: true });
 
   try {
-    const narrationAudio = await synthesizeSpeech(script.narration);
-    if (!narrationAudio) return skipped('ElevenLabs narration failed - ELEVENLABS_API_KEY/ELEVENLABS_VOICE_ID missing, or the request itself failed (see server logs for the specific TTS error).');
+    const { audio: narrationAudio, error: narrationError } = await synthesizeSpeech(script.narration);
+    if (!narrationAudio) return skipped(`ElevenLabs narration failed: ${narrationError}`);
 
     const narrationPath = path.join(tmpDir, 'narration.mp3');
     await fs.writeFile(narrationPath, narrationAudio);
