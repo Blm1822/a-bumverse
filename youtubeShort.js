@@ -6,9 +6,11 @@
 // content from each other (whichever platform posts about an item first
 // would block the other from ever covering it).
 //
-// This module only gets as far as producing a finished .mp4 file - actual
-// upload to YouTube needs its own OAuth setup and isn't wired up yet. See
-// scripts/render-daily-short.js for a manually-runnable entry point.
+// Upload is wired up (see youtube.js) and checkAndPostShort() below does
+// both the render and the real public upload on its hourly schedule. For a
+// manual, safe-to-repeat check of the pipeline against production, see the
+// /admin/render-test-short (render only) and /admin/upload-test-short
+// (render + upload as a private video) routes in server.js instead.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -97,12 +99,25 @@ async function pickMusicTrack() {
   return path.join(MUSIC_DIR, files[Math.floor(Math.random() * files.length)]);
 }
 
+// Distinguishable stand-in for "nothing happened, and here's specifically
+// why" - plain `null` couldn't carry that, which made both admin diagnostic
+// routes in server.js dead-end at a generic "see server logs" no matter which
+// of several very different causes (nothing new to cover vs. ElevenLabs down
+// vs. no music track vs. every image download failing) was actually behind
+// it. skipped() stays close to a boolean falsy check (`if (!result)` still
+// worked before; callers now check `result.skipped` instead) while giving
+// both admin routes and checkAndPostShort's own error log a real reason.
+function skipped(reason) {
+  return { skipped: true, reason };
+}
+
 /**
  * Picks today's content (if any, and if not already covered), synthesizes
  * narration, and renders the finished vertical video. Returns
- * { outPath, contentType, itemId, url } or null if there's nothing to post
- * today, credentials/assets aren't configured, or something failed -
- * mirrors socialPoster.js's "never force filler, never throw" shape.
+ * { skipped: false, outPath, contentType, itemId, url } on success, or
+ * { skipped: true, reason } if there's nothing to post today,
+ * credentials/assets aren't configured, or something failed - mirrors
+ * socialPoster.js's "never force filler, never throw" shape.
  */
 export async function buildDailyShort() {
   // A death is a one-time, time-sensitive event worth posting about the
@@ -111,17 +126,18 @@ export async function buildDailyShort() {
   // Checked ahead of and regardless of the daily cap below;
   // hasPostedAboutItem still guarantees the same artist never posts twice.
   const script = inMemoriamScript() || (hasPostedToday(PLATFORM, todayUTC()) ? null : (onThisDayScript() || trendingScript()));
-  if (!script || !script.imageUrls.length) return null;
+  if (!script) return skipped('Nothing new to cover today (already posted about everything current In Memoriam/On This Day/Trending picks have to offer).');
+  if (!script.imageUrls.length) return skipped(`Picked "${script.title}" but it has no usable image URLs to build a video from.`);
 
   const musicPath = await pickMusicTrack();
-  if (!musicPath) return null; // no royalty-free tracks added yet - see assets/music/README.md
+  if (!musicPath) return skipped('No royalty-free background tracks in assets/music/ - see assets/music/README.md.');
 
   const tmpDir = path.join(os.tmpdir(), `albumverse-short-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
   await fs.mkdir(tmpDir, { recursive: true });
 
   try {
     const narrationAudio = await synthesizeSpeech(script.narration);
-    if (!narrationAudio) return null; // ElevenLabs not configured, or the request failed
+    if (!narrationAudio) return skipped('ElevenLabs narration failed - ELEVENLABS_API_KEY/ELEVENLABS_VOICE_ID missing, or the request itself failed (see server logs for the specific TTS error).');
 
     const narrationPath = path.join(tmpDir, 'narration.mp3');
     await fs.writeFile(narrationPath, narrationAudio);
@@ -132,7 +148,7 @@ export async function buildDailyShort() {
       script.imageUrls.map((url, i) => downloadToTemp(url, tmpDir, i))
     );
     const imagePaths = downloads.filter((d) => d.status === 'fulfilled').map((d) => d.value);
-    if (!imagePaths.length) return null;
+    if (!imagePaths.length) return skipped(`Picked "${script.title}" but every one of its ${script.imageUrls.length} image URL(s) failed to download.`);
 
     const narrationSeconds = await getAudioDurationSeconds(narrationPath);
     const outPath = path.join(tmpDir, 'short.mp4');
@@ -148,6 +164,7 @@ export async function buildDailyShort() {
     });
 
     return {
+      skipped: false,
       outPath,
       contentType: script.contentType,
       itemId: script.itemId,
@@ -158,7 +175,7 @@ export async function buildDailyShort() {
   } catch (err) {
     console.error('daily short render failed:', err.message);
     await fs.rm(tmpDir, { recursive: true, force: true });
-    return null;
+    return skipped(`Render threw: ${err.message}`);
   }
 }
 
@@ -172,7 +189,10 @@ export async function checkAndPostShort() {
   let result;
   try {
     result = await buildDailyShort();
-    if (!result) return; // nothing to cover today, or a required piece isn't configured
+    if (result.skipped) {
+      console.log('daily short skipped:', result.reason);
+      return;
+    }
 
     const videoBuffer = await fs.readFile(result.outPath);
     const videoId = await uploadShort(videoBuffer, {
@@ -184,7 +204,7 @@ export async function checkAndPostShort() {
   } catch (err) {
     console.error('daily short post check failed:', err.message);
   } finally {
-    if (result) await fs.rm(path.dirname(result.outPath), { recursive: true, force: true }).catch(() => {});
+    if (result && !result.skipped) await fs.rm(path.dirname(result.outPath), { recursive: true, force: true }).catch(() => {});
   }
 }
 

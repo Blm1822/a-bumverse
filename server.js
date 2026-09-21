@@ -1016,8 +1016,8 @@ app.get('/admin/render-test-short', requireAnalyticsAuth, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
-  if (!result) {
-    return res.json({ rendered: false, reason: 'Nothing to render - see server logs (no credentials, no music track, already posted today, or nothing new to cover).' });
+  if (result.skipped) {
+    return res.json({ rendered: false, reason: result.reason });
   }
   res.download(result.outPath, 'albumverse-short.mp4', (err) => {
     fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
@@ -1037,8 +1037,8 @@ app.get('/admin/upload-test-short', requireAnalyticsAuth, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
-  if (!result) {
-    return res.json({ uploaded: false, reason: 'Nothing to render - see server logs (no credentials, no music track, already posted today, or nothing new to cover).' });
+  if (result.skipped) {
+    return res.json({ uploaded: false, reason: result.reason });
   }
   try {
     const videoBuffer = fs.readFileSync(result.outPath);
@@ -1048,7 +1048,7 @@ app.get('/admin/upload-test-short', requireAnalyticsAuth, async (req, res) => {
       privacyStatus: 'private',
     });
     if (!videoId) {
-      return res.json({ uploaded: false, reason: 'Render succeeded but upload failed or YouTube credentials are missing - see server logs.' });
+      return res.json({ uploaded: false, reason: 'Render succeeded but upload failed or YouTube credentials (YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET/YOUTUBE_REFRESH_TOKEN) are missing - see server logs for the specific upload error. If credentials are set, the refresh token may have expired (capped at 7 days while the Google Cloud OAuth app is in "Testing" mode - see youtube.js) and needs regenerating.' });
     }
     res.json({ uploaded: true, videoId, studioUrl: `https://studio.youtube.com/video/${videoId}/edit` });
   } finally {
