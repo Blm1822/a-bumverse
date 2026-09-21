@@ -38,10 +38,17 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // which is what silently made the catalog (and, worse, the social posters' picks
 // before they started excluding classical - see socialPoster.js) skew far more
 // classical than the curated artist list itself ever intended. So this now
-// tracks completion (app_state's 'seed_imports_done' flag, via
-// getAppState/setAppState in db.js) and only resumes the seed-file chain below
-// while that's unset - once every file has fully finished a single time, later
-// boots skip straight to the backfill chain instead of re-running it forever.
+// tracks completion per file (app_state's 'seed_import_done:<filename>' keys,
+// via getAppState/setAppState in db.js) and skips any file that's already
+// finished once, rather than skipping the whole chain - a file being added
+// later (as long as it's new content, e.g. a fresh round appended to the list
+// below rather than edits to an already-completed one) still gets picked up on
+// the next boot instead of needing the classical-heavy files to re-run too.
+// FORMER_SEED_DONE_KEY is a one-time migration for anyone who already has the
+// old all-or-nothing 'seed_imports_done' flag set from before this became
+// per-file: it's treated as every file in FILES_COVERED_BY_FORMER_FLAG being
+// individually done, so switching schemes doesn't force a one-time re-run of
+// exactly the files that flag was added to stop re-running.
 //
 // Runs the seed files one at a time, not in parallel - two simultaneous import
 // processes each pacing their own MusicBrainz calls at ~1.3s meant real live
@@ -72,11 +79,18 @@ const indexHtmlPath = path.join(__dirname, 'public', 'index.html');
 // second one kicked off before the first exits) keeps the same "never two
 // concurrent MusicBrainz consumers" property as the rest of this chain.
 const LIFESPAN_RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const SEED_IMPORTS_DONE_KEY = 'seed_imports_done';
+const FORMER_SEED_DONE_KEY = 'seed_imports_done'; // pre-per-file migration flag, see comment above
+const FILES_COVERED_BY_FORMER_FLAG = ['artists.txt', 'artists_expansion.txt', 'artists_expansion_2.txt', 'artists_expansion_3.txt'];
+const seedFileDoneKey = (file) => `seed_import_done:${file}`;
+
+function isSeedFileDone(file) {
+  if (getAppState(seedFileDoneKey(file)) === 'true') return true;
+  return getAppState(FORMER_SEED_DONE_KEY) === 'true' && FILES_COVERED_BY_FORMER_FLAG.includes(file);
+}
 
 function launchSeedImports() {
   if (!process.env.DATA_DIR) return;
-  const files = ['artists.txt', 'artists_expansion.txt', 'artists_expansion_2.txt', 'artists_expansion_3.txt'];
+  const files = [...FILES_COVERED_BY_FORMER_FLAG, 'artists_expansion_4.txt'];
 
   function runScript(args, onExit) {
     const child = spawn('node', args, { cwd: __dirname, stdio: 'inherit' });
@@ -96,18 +110,21 @@ function launchSeedImports() {
 
   function runNext(i) {
     if (i >= files.length) {
-      setAppState(SEED_IMPORTS_DONE_KEY, 'true');
       runBackfillChain();
       return;
     }
-    runScript(['scripts/import.js', '--file', files[i]], () => runNext(i + 1));
+    const file = files[i];
+    if (isSeedFileDone(file)) {
+      runNext(i + 1);
+      return;
+    }
+    runScript(['scripts/import.js', '--file', file], () => {
+      setAppState(seedFileDoneKey(file), 'true');
+      runNext(i + 1);
+    });
   }
 
-  if (getAppState(SEED_IMPORTS_DONE_KEY) === 'true') {
-    runBackfillChain();
-  } else {
-    runNext(0);
-  }
+  runNext(0);
 }
 
 const LOCAL_RESULT_FLOOR = 6; // below this, also ask MusicBrainz live and merge in what we're missing

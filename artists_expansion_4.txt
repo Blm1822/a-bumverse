@@ -1,0 +1,37 @@
+# Albumverse seed list, round 5: pop-punk/emo, a genre the first four
+# rounds barely touched despite it being one of the more mainstream/
+# recognizable ones - only Blink-182, Sum 41, and Green Day made it in
+# via earlier rounds. Added after New Found Glory's Chad Gilbert's death
+# turned up nothing in the local catalog - most of the genre's other
+# major acts were missing too.
+# Runs alongside artists.txt, artists_expansion.txt, artists_expansion_2.txt,
+# artists_expansion_3.txt.
+
+# Pop-punk / emo
+New Found Glory
+Fall Out Boy
+My Chemical Romance
+Panic! at the Disco
+Paramore
+Jimmy Eat World
+Taking Back Sunday
+The Used
+Yellowcard
+All Time Low
+State Champs
+Mayday Parade
+The Starting Line
+Saves the Day
+Motion City Soundtrack
+Say Anything
+Hawthorne Heights
+Senses Fail
+Boys Like Girls
+We the Kings
+A Day to Remember
+The Wonder Years
+Real Friends
+Neck Deep
+Knuckle Puck
+Four Year Strong
+Relient K
