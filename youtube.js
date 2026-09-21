@@ -17,8 +17,6 @@ const UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadTy
 
 async function getAccessToken() {
   const { YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN } = process.env;
-  if (!YOUTUBE_CLIENT_ID || !YOUTUBE_CLIENT_SECRET || !YOUTUBE_REFRESH_TOKEN) return null;
-
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -29,20 +27,33 @@ async function getAccessToken() {
       grant_type: 'refresh_token',
     }),
   });
+  // A bad/expired refresh_token (see the 7-day Testing-mode cap noted at the
+  // top of this file) fails right here with Google's own error body, e.g.
+  // {"error":"invalid_grant","error_description":"Token has been expired or
+  // revoked."} - exactly the detail worth keeping in `error` below rather
+  // than collapsing into a generic failure.
   if (!res.ok) throw new Error(`token refresh ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return data.access_token;
 }
 
 /**
- * Uploads `videoBuffer` (an mp4) to the configured YouTube channel.
- * Returns the new video's id, or null if credentials are missing or
- * anything failed.
+ * Uploads `videoBuffer` (an mp4) to the configured YouTube channel. Returns
+ * { videoId, error }: `videoId` is the new video's id on success, null
+ * otherwise; `error` is null on success, or a message distinguishing
+ * missing credentials from a failed request (token refresh or the upload
+ * itself, including YouTube/Google's own error body) - same shape as
+ * elevenlabs.js's synthesizeSpeech(), for the same reason: so callers can
+ * report specifically why instead of every failure mode looking identical.
  */
 export async function uploadShort(videoBuffer, { title, description, privacyStatus = 'public' }) {
+  const { YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN } = process.env;
+  if (!YOUTUBE_CLIENT_ID || !YOUTUBE_CLIENT_SECRET || !YOUTUBE_REFRESH_TOKEN) {
+    return { videoId: null, error: 'YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET/YOUTUBE_REFRESH_TOKEN not set.' };
+  }
+
   try {
     const accessToken = await getAccessToken();
-    if (!accessToken) return null;
 
     // Resumable upload: first request registers the video's metadata and
     // gets back a session URL, second request PUTs the actual video bytes -
@@ -72,9 +83,9 @@ export async function uploadShort(videoBuffer, { title, description, privacyStat
     if (!uploadRes.ok) throw new Error(`upload ${uploadRes.status}: ${await uploadRes.text()}`);
 
     const video = await uploadRes.json();
-    return video.id;
+    return { videoId: video.id, error: null };
   } catch (err) {
     console.error('YouTube upload failed:', err.message);
-    return null;
+    return { videoId: null, error: err.message };
   }
 }

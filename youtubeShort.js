@@ -195,12 +195,13 @@ export async function checkAndPostShort() {
     }
 
     const videoBuffer = await fs.readFile(result.outPath);
-    const videoId = await uploadShort(videoBuffer, {
+    const { videoId, error: uploadError } = await uploadShort(videoBuffer, {
       title: result.title,
       description: result.description,
       privacyStatus: 'public',
     });
     if (videoId) recordShortPosted(result.contentType, result.itemId);
+    else console.log('daily short rendered but upload failed:', uploadError);
   } catch (err) {
     console.error('daily short post check failed:', err.message);
   } finally {

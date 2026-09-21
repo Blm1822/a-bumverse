@@ -1042,13 +1042,13 @@ app.get('/admin/upload-test-short', requireAnalyticsAuth, async (req, res) => {
   }
   try {
     const videoBuffer = fs.readFileSync(result.outPath);
-    const videoId = await uploadShort(videoBuffer, {
+    const { videoId, error: uploadError } = await uploadShort(videoBuffer, {
       title: result.title,
       description: result.description,
       privacyStatus: 'private',
     });
     if (!videoId) {
-      return res.json({ uploaded: false, reason: 'Render succeeded but upload failed or YouTube credentials (YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET/YOUTUBE_REFRESH_TOKEN) are missing - see server logs for the specific upload error. If credentials are set, the refresh token may have expired (capped at 7 days while the Google Cloud OAuth app is in "Testing" mode - see youtube.js) and needs regenerating.' });
+      return res.json({ uploaded: false, reason: `Render succeeded but upload failed: ${uploadError}` });
     }
     res.json({ uploaded: true, videoId, studioUrl: `https://studio.youtube.com/video/${videoId}/edit` });
   } finally {
