@@ -836,36 +836,43 @@ app.get('/random', (req, res) => {
 
 app.get('/trending', (req, res) => {
   logView(req, null);
+  const [top] = trendingAlbums(1);
   res.send(renderIndexWithMeta(req, {
     title: 'Trending this week',
     description: 'The most-viewed albums on Albumverse this week.',
+    image: top && top.coverArtUrl,
   }));
 });
 
 app.get('/top-rated', (req, res) => {
   logView(req, null);
+  const [top] = topRatedAlbums(1);
   res.send(renderIndexWithMeta(req, {
     title: 'Top rated albums',
     description: 'The highest user-rated albums on Albumverse.',
+    image: top && top.coverArtUrl,
   }));
 });
 
 app.get('/on-this-day', (req, res) => {
   logView(req, null);
   const label = todayLabel();
+  const albums = onThisDayAlbums(10);
+  const top = albums[albums.length - 1];
   res.send(renderIndexWithMeta(req, {
     title: `On this day: ${label}`,
     description: `Albums first released on ${label} across music history, on Albumverse.`,
+    image: top && top.coverArtUrl,
   }));
 });
 
 app.get('/in-memoriam', (req, res) => {
   logView(req, null);
-  // The most recent loss's own photo as the share image - arguably the most
-  // shared-out-of-genuine-sentiment page on the site, so a blank card here
-  // (every other list page's og:image is already just missing, but this is
-  // the one where it costs the most) was worth a dedicated fix rather than
-  // waiting on a general "give every browse page an image" pass.
+  // The most recent loss's own photo as the share image - same "give every
+  // browse page a real og:image" pass as trending/top-rated/on-this-day/
+  // recent/decade/genre/artists/search above, called out with its own
+  // comment since this is arguably the page most likely to be shared out of
+  // genuine sentiment rather than casual browsing.
   const [mostRecent] = inMemoriam(1);
   res.send(renderIndexWithMeta(req, {
     title: 'In Memoriam',
@@ -892,17 +899,24 @@ app.get('/my-albums', (req, res) => {
 
 app.get('/artists', (req, res) => {
   logView(req, null);
+  // listArtists() (used by the homepage's own "Browse artists" rail) requires
+  // >= 2 albums and is a curated/random sample - not what this page actually
+  // shows. listArtistsPage() is the real data source (see /api/artists/all).
+  const [top] = listArtistsPage(1, 0);
   res.send(renderIndexWithMeta(req, {
     title: 'Artists',
     description: 'Browse every artist in the Albumverse database.',
+    image: top && top.coverArtUrl,
   }));
 });
 
 app.get('/recent', (req, res) => {
   logView(req, null);
+  const [top] = recentlyAdded(1);
   res.send(renderIndexWithMeta(req, {
     title: 'Recently added',
     description: 'The latest albums added to Albumverse.',
+    image: top && top.coverArtUrl,
   }));
 });
 
@@ -910,9 +924,11 @@ app.get('/decade/:decade', (req, res) => {
   logView(req, null);
   const decade = req.params.decade;
   if (!DECADE_RE.test(decade) || Number(decade) % 10 !== 0) return res.sendFile(indexHtmlPath);
+  const [top] = albumsByDecade(Number(decade), 1);
   res.send(renderIndexWithMeta(req, {
     title: `${decade}s`,
     description: `Albums released in the ${decade}s on Albumverse.`,
+    image: top && top.coverArtUrl,
   }));
 });
 
@@ -920,9 +936,11 @@ app.get('/genre', (req, res) => {
   const genre = (req.query.name || '').trim();
   logView(req, genre || null);
   if (!genre) return res.sendFile(indexHtmlPath);
+  const [top] = albumsByGenre(genre, 1);
   res.send(renderIndexWithMeta(req, {
     title: genre,
     description: `${genre} albums on Albumverse.`,
+    image: top && top.coverArtUrl,
   }));
 });
 
@@ -930,9 +948,11 @@ app.get('/search', (req, res) => {
   const q = (req.query.q || '').trim();
   logView(req, q || null);
   if (!q) return res.sendFile(indexHtmlPath);
+  const [top] = searchLocal(q, 1);
   res.send(renderIndexWithMeta(req, {
     title: `Search: ${q}`,
     description: `Search results for "${q}" on Albumverse.`,
+    image: top && top.coverArtUrl,
   }));
 });
 
