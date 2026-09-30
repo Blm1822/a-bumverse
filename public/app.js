@@ -1613,7 +1613,7 @@ function renderRateWidget(albumId, yourReview) {
   if (!widget) return;
 
   if (!currentUser) {
-    widget.innerHTML = '<button type="button" class="auth-link" id="rate-signin-btn">Sign in to rate this album</button>';
+    widget.innerHTML = '<button type="button" class="rate-signin-cta" id="rate-signin-btn"><span class="star">&#9733;</span>Sign in to rate this album</button>';
     document.getElementById('rate-signin-btn').addEventListener('click', () => openAuthModal('login'));
     return;
   }

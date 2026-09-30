@@ -732,6 +732,28 @@ main { padding: 24px; max-width: 1100px; margin: 0 auto; }
   color: #16142a;
   border-color: transparent;
 }
+/* The single highest-value conversion moment on the site (someone engaged
+   enough to want to rate something) was previously a bare 13px text link
+   (.auth-link, shared with plain nav items like "Sign in"/"Sign out" - not
+   restyled directly since that'd also affect those). Give it the same
+   gradient-CTA weight as .merch-link/rate-num.selected instead of blending
+   into the rest of the album page. */
+.rate-signin-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(120deg, var(--accent), var(--accent2));
+  color: #16142a;
+  font-size: 14px;
+  font-weight: 800;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(180, 155, 251, 0.35);
+}
+.rate-signin-cta:hover { filter: brightness(1.05); }
+.rate-signin-cta .star { color: #16142a; font-size: 13px; }
 #rate-body {
   display: block;
   width: 100%;
