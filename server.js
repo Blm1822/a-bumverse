@@ -796,6 +796,27 @@ function websiteJsonLd(req) {
   };
 }
 
+// BreadcrumbList - a visible breadcrumb trail (Albumverse > Artist > Album)
+// in Google's own search result instead of a plain URL, a real click-through
+// improvement independent of ranking. `items` is everything after the
+// implicit Home root, as [{ name, path }] (path relative, e.g. "/artist/x").
+function breadcrumbJsonLd(req, items) {
+  const base = `${req.protocol}://${req.get('host')}`;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Albumverse', item: `${base}/` },
+      ...items.map((it, i) => ({
+        '@type': 'ListItem',
+        position: i + 2,
+        name: it.name,
+        item: `${base}${it.path}`,
+      })),
+    ],
+  };
+}
+
 function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 'website' }) {
   let html = fs.readFileSync(indexHtmlPath, 'utf8');
   const safeTitle = escapeAttr(title || 'Albumverse');
@@ -813,7 +834,12 @@ function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 
     // Escape "<" so a title/bio containing a literal "</script>" (album
     // titles are free text, bios are scraped from Wikipedia) can't break out
     // of the script tag early - JSON.stringify alone doesn't escape "/".
-    jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>` : '',
+    // jsonLd can be one object or an array (e.g. MusicAlbum + BreadcrumbList
+    // together) - Google supports multiple separate JSON-LD <script> tags on
+    // one page, so each just gets its own rather than needing an @graph.
+    ...[].concat(jsonLd || []).map(
+      (ld) => `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`
+    ),
   ].join('\n    ');
   // Avoid "Albumverse — Albumverse" for the homepage, the one caller with no
   // real page-specific title of its own.
@@ -827,7 +853,17 @@ app.get('/album/:mbid', (req, res) => {
   const album = MBID_RE.test(req.params.mbid) ? getAlbumLocal(req.params.mbid) : null;
   if (!album) return res.sendFile(indexHtmlPath);
   const description = `${album.artist} · ${album.type}${album.date ? ' · ' + album.date : ''} — tracklist, writers, and performers on Albumverse.`;
-  res.send(renderIndexWithMeta(req, { title: album.title, description, image: album.coverArtUrl, jsonLd: albumJsonLd(req, album), ogType: 'music.album' }));
+  const primaryArtist = (album.artists || [])[0];
+  const breadcrumbItems = primaryArtist
+    ? [{ name: primaryArtist.name, path: `/artist/${primaryArtist.id}` }, { name: album.title, path: `/album/${album.id}` }]
+    : [{ name: album.title, path: `/album/${album.id}` }];
+  res.send(renderIndexWithMeta(req, {
+    title: album.title,
+    description,
+    image: album.coverArtUrl,
+    jsonLd: [albumJsonLd(req, album), breadcrumbJsonLd(req, breadcrumbItems)],
+    ogType: 'music.album',
+  }));
 });
 
 app.get('/artist/:mbid', (req, res) => {
@@ -835,7 +871,13 @@ app.get('/artist/:mbid', (req, res) => {
   const artist = MBID_RE.test(req.params.mbid) ? getArtistLocal(req.params.mbid) : null;
   if (!artist) return res.sendFile(indexHtmlPath);
   const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
-  res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl, jsonLd: artistJsonLd(req, artist), ogType: 'profile' }));
+  res.send(renderIndexWithMeta(req, {
+    title: artist.name,
+    description,
+    image: artist.coverArtUrl,
+    jsonLd: [artistJsonLd(req, artist), breadcrumbJsonLd(req, [{ name: artist.name, path: `/artist/${artist.id}` }])],
+    ogType: 'profile',
+  }));
 });
 
 app.get('/user/:username', (req, res) => {
