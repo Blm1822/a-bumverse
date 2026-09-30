@@ -174,6 +174,7 @@ app.get('/', (req, res) => {
   res.send(renderIndexWithMeta(req, {
     description: 'The music database - search albums, see who wrote and performed every track, and browse by artist.',
     image: featured && featured.imageUrl,
+    jsonLd: websiteJsonLd(req),
   }));
 });
 
@@ -772,6 +773,26 @@ function artistJsonLd(req, artist) {
     sameAs: artist.wikiUrl ? [artist.wikiUrl] : undefined,
     birthDate: isPerson ? artist.bornDate || undefined : undefined,
     deathDate: isPerson ? artist.diedDate || undefined : undefined,
+  };
+}
+
+// WebSite + SearchAction - lets Google show a search box directly in its own
+// results page for a branded query like "Albumverse" (a word-of-mouth/social
+// share is exactly the kind of thing that generates that query), rather than
+// sending someone to the homepage with no obvious next step. Album/artist
+// pages already get their own JSON-LD; the homepage had none at all.
+function websiteJsonLd(req) {
+  const base = `${req.protocol}://${req.get('host')}`;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Albumverse',
+    url: `${base}/`,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: `${base}/search?q={search_term_string}`,
+      'query-input': 'required name=search_term_string',
+    },
   };
 }
 
