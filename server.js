@@ -958,7 +958,21 @@ app.get('/search', (req, res) => {
 
 app.get('/sitemap.xml', (req, res) => {
   const base = `${req.protocol}://${req.get('host')}`;
+  // Every browse/category page was previously missing from here entirely -
+  // only the homepage plus every individual artist/album made it in. That
+  // silently left out exactly the pages most likely to catch fresh, timely
+  // search traffic (In Memoriam for "did [musician] die"-style queries right
+  // after a death - the Duncan Sheik/Manuel Seal pattern this project keeps
+  // running into - plus evergreen decade/genre category queries).
+  const staticPages = ['/trending', '/top-rated', '/on-this-day', '/in-memoriam', '/artists', '/recent'];
   const urls = [`<url><loc>${base}/</loc></url>`];
+  for (const p of staticPages) urls.push(`<url><loc>${base}${p}</loc></url>`);
+  for (const { decade } of decadeCounts()) {
+    urls.push(`<url><loc>${base}/decade/${decade}</loc></url>`);
+  }
+  for (const { genre } of genreCounts(100)) {
+    urls.push(`<url><loc>${base}/genre?name=${encodeURIComponent(genre)}</loc></url>`);
+  }
   for (const a of sitemapArtists()) {
     urls.push(`<url><loc>${base}/artist/${a.id}</loc></url>`);
   }
