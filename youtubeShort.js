@@ -38,6 +38,17 @@ function inMemoriamScript() {
   // album covers - a retrospective feel rather than one static image.
   const albumCovers = artistAlbumCoversForRetrospective(artist.id, 4);
   const imageUrls = [artist.imageUrl, ...albumCovers].filter(Boolean);
+  // Returning a truthy-but-imageless object here would make
+  // `inMemoriamScript() || onThisDayScript() || trendingScript()` in
+  // buildDailyShort() short-circuit on this pick forever - since a never-
+  // successfully-posted item never satisfies hasPostedAboutItem, the same
+  // imageless artist would keep winning inMemoriam(1) and blocking On This
+  // Day/Trending from ever getting a turn until a newer death displaces
+  // them. Returning null instead lets the cascade actually fall through.
+  if (!imageUrls.length) {
+    console.log(`In Memoriam YouTube pick "${artist.name}" has no usable images - falling through to On This Day/Trending.`);
+    return null;
+  }
   return {
     title: `Remembering ${artist.name}`,
     subtitle: year ? `d. ${year}` : '',
@@ -57,12 +68,19 @@ function onThisDayScript() {
   if (!albums.length) return null;
   const album = albums[albums.length - 1];
   if (hasPostedAboutItem('on_this_day_yt', album.id)) return null;
+  const imageUrls = [album.coverArtUrl].filter(Boolean);
+  // Same reasoning as inMemoriamScript() above - fall through to Trending
+  // rather than dead-ending on a coverless pick.
+  if (!imageUrls.length) {
+    console.log(`On This Day YouTube pick "${album.title}" has no cover art - falling through to Trending.`);
+    return null;
+  }
   const year = (album.date || '').slice(0, 4);
   return {
     title: `On This Day: ${album.title}`,
     subtitle: `${album.artist} · ${year}`,
     narration: `On this day in ${year}, ${album.artist} released "${album.title}." See the full tracklist and credits on Albumverse.`,
-    imageUrls: [album.coverArtUrl].filter(Boolean),
+    imageUrls,
     contentType: 'on_this_day_yt',
     itemId: album.id,
     url: `${SITE_URL}/album/${album.id}`,
@@ -72,11 +90,16 @@ function onThisDayScript() {
 function trendingScript() {
   const [album] = trendingAlbumsForSocial(1);
   if (!album || !album.views || hasPostedAboutItem('trending_yt', album.id)) return null;
+  const imageUrls = [album.coverArtUrl].filter(Boolean);
+  if (!imageUrls.length) {
+    console.log(`Trending YouTube pick "${album.title}" has no cover art - nothing left to fall through to today.`);
+    return null;
+  }
   return {
     title: `Trending: ${album.title}`,
     subtitle: album.artist,
     narration: `Trending on Albumverse this week: "${album.title}" by ${album.artist}. See what listeners are saying.`,
-    imageUrls: [album.coverArtUrl].filter(Boolean),
+    imageUrls,
     contentType: 'trending_yt',
     itemId: album.id,
     url: `${SITE_URL}/album/${album.id}`,
@@ -125,9 +148,12 @@ export async function buildDailyShort() {
   // just because an On This Day/Trending pick already went out today.
   // Checked ahead of and regardless of the daily cap below;
   // hasPostedAboutItem still guarantees the same artist never posts twice.
+  // Each picker function returns null (not a truthy-but-imageless object)
+  // when it can't produce usable images, so an imageless top pick correctly
+  // falls through to the next option instead of dead-ending the cascade -
+  // see the comment in inMemoriamScript() for why that distinction matters.
   const script = inMemoriamScript() || (hasPostedToday(PLATFORM, todayUTC()) ? null : (onThisDayScript() || trendingScript()));
-  if (!script) return skipped('Nothing new to cover today (already posted about everything current In Memoriam/On This Day/Trending picks have to offer).');
-  if (!script.imageUrls.length) return skipped(`Picked "${script.title}" but it has no usable image URLs to build a video from.`);
+  if (!script) return skipped('Nothing new to cover today (already posted about everything current In Memoriam/On This Day/Trending picks have to offer, or none of today\'s picks have usable images).');
 
   const musicPath = await pickMusicTrack();
   if (!musicPath) return skipped('No royalty-free background tracks in assets/music/ - see assets/music/README.md.');
