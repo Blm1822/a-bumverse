@@ -161,7 +161,20 @@ function logView(req, extraQuery) {
 // before any of our own code runs.
 app.get('/', (req, res) => {
   logView(req, null);
-  res.sendFile(indexHtmlPath);
+  // Previously served the static index.html untouched - meaning the single
+  // most commonly shared URL on the whole site had zero og:/twitter: tags
+  // at all (a link to any album/artist page at least got a title, description
+  // and cover image; the homepage got a blank, imageless card on Facebook/
+  // Twitter/etc, exactly the kind of thing that hurts click-through on a
+  // share like the one that drove this month's real traffic spike). Reusing
+  // the same featured-artist pick that's already shown on the page itself as
+  // the share image, so anyone posting a bare link still gets something with
+  // a real photo instead of nothing.
+  const featured = featuredArtist();
+  res.send(renderIndexWithMeta(req, {
+    description: 'The music database - search albums, see who wrote and performed every track, and browse by artist.',
+    image: featured && featured.imageUrl,
+  }));
 });
 
 // no-cache (not no-store) - browsers still revalidate via ETag so unchanged
@@ -762,7 +775,7 @@ function artistJsonLd(req, artist) {
   };
 }
 
-function renderIndexWithMeta(req, { title, description, image, jsonLd }) {
+function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 'website' }) {
   let html = fs.readFileSync(indexHtmlPath, 'utf8');
   const safeTitle = escapeAttr(title || 'Albumverse');
   const safeDesc = escapeAttr(description || 'A music database - search albums, see who wrote and performed every track.');
@@ -770,7 +783,7 @@ function renderIndexWithMeta(req, { title, description, image, jsonLd }) {
   const tags = [
     `<meta property="og:title" content="${safeTitle}" />`,
     `<meta property="og:description" content="${safeDesc}" />`,
-    `<meta property="og:type" content="music.album" />`,
+    `<meta property="og:type" content="${ogType}" />`,
     `<meta property="og:url" content="${escapeAttr(url)}" />`,
     image ? `<meta property="og:image" content="${escapeAttr(image)}" />` : '',
     `<meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}" />`,
@@ -780,7 +793,10 @@ function renderIndexWithMeta(req, { title, description, image, jsonLd }) {
     // of the script tag early - JSON.stringify alone doesn't escape "/".
     jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>` : '',
   ].join('\n    ');
-  html = html.replace('<title>Albumverse</title>', `<title>${safeTitle} — Albumverse</title>\n    ${tags}`);
+  // Avoid "Albumverse — Albumverse" for the homepage, the one caller with no
+  // real page-specific title of its own.
+  const titleTag = title ? `${safeTitle} — Albumverse` : 'Albumverse';
+  html = html.replace('<title>Albumverse</title>', `<title>${titleTag}</title>\n    ${tags}`);
   return html;
 }
 
@@ -789,7 +805,7 @@ app.get('/album/:mbid', (req, res) => {
   const album = MBID_RE.test(req.params.mbid) ? getAlbumLocal(req.params.mbid) : null;
   if (!album) return res.sendFile(indexHtmlPath);
   const description = `${album.artist} · ${album.type}${album.date ? ' · ' + album.date : ''} — tracklist, writers, and performers on Albumverse.`;
-  res.send(renderIndexWithMeta(req, { title: album.title, description, image: album.coverArtUrl, jsonLd: albumJsonLd(req, album) }));
+  res.send(renderIndexWithMeta(req, { title: album.title, description, image: album.coverArtUrl, jsonLd: albumJsonLd(req, album), ogType: 'music.album' }));
 });
 
 app.get('/artist/:mbid', (req, res) => {
@@ -797,7 +813,7 @@ app.get('/artist/:mbid', (req, res) => {
   const artist = MBID_RE.test(req.params.mbid) ? getArtistLocal(req.params.mbid) : null;
   if (!artist) return res.sendFile(indexHtmlPath);
   const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
-  res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl, jsonLd: artistJsonLd(req, artist) }));
+  res.send(renderIndexWithMeta(req, { title: artist.name, description, image: artist.coverArtUrl, jsonLd: artistJsonLd(req, artist), ogType: 'profile' }));
 });
 
 app.get('/user/:username', (req, res) => {
@@ -845,9 +861,16 @@ app.get('/on-this-day', (req, res) => {
 
 app.get('/in-memoriam', (req, res) => {
   logView(req, null);
+  // The most recent loss's own photo as the share image - arguably the most
+  // shared-out-of-genuine-sentiment page on the site, so a blank card here
+  // (every other list page's og:image is already just missing, but this is
+  // the one where it costs the most) was worth a dedicated fix rather than
+  // waiting on a general "give every browse page an image" pass.
+  const [mostRecent] = inMemoriam(1);
   res.send(renderIndexWithMeta(req, {
     title: 'In Memoriam',
     description: "Musicians in Albumverse's database whose MusicBrainz profile records that they've passed away, most recent first.",
+    image: mostRecent && mostRecent.imageUrl,
   }));
 });
 
