@@ -802,6 +802,7 @@ function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 
   const safeDesc = escapeAttr(description || 'A music database - search albums, see who wrote and performed every track.');
   const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
   const tags = [
+    `<link rel="canonical" href="${escapeAttr(url)}" />`,
     `<meta property="og:title" content="${safeTitle}" />`,
     `<meta property="og:description" content="${safeDesc}" />`,
     `<meta property="og:type" content="${ogType}" />`,
