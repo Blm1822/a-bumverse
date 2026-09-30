@@ -14,7 +14,8 @@
 // different host, a handful of requests a day), so it needs no coordination
 // with the import/backfill chain in server.js.
 
-import { setArtistDeathFromExternalSource } from './db.js';
+import { setArtistDeathFromExternalSource, getArtistBioStatus, setArtistBio } from './db.js';
+import { getArtistBio, looksMusical } from './wiki.js';
 import { checkAndPostDaily } from './socialPoster.js';
 import { checkAndPostShort } from './youtubeShort.js';
 
@@ -48,6 +49,30 @@ export async function fetchRecentDeaths() {
   }));
 }
 
+// Bio/image lookups are normally reactive - only triggered by a human
+// hitting /api/artist/:mbid (see server.js) - which works fine for anyone
+// whose page already gets organic traffic, but plenty of artists only exist
+// in this database as a track-credit stub (a session musician, producer, or
+// songwriter, never a headline "album artist") and may never get a single
+// page view. A freshly-detected death for one of those goes straight into
+// the social posters with bio/wiki_image_url still null, which is exactly
+// what silently blocked a YouTube post entirely (see buildDailyShort()'s
+// image-URL fallthrough) rather than just showing plainer In Memoriam
+// entries. Doing the lookup here, proactively, for each newly-marked death -
+// before the posters get a chance to run - fixes both at once.
+async function fillMissingBio(mbid) {
+  const artist = getArtistBioStatus(mbid);
+  if (!artist) return;
+  const needsLookup = artist.bio === null || (artist.bio && !looksMusical(artist.bio));
+  if (!needsLookup) return;
+  try {
+    const found = await getArtistBio(artist.name, artist.disambiguation);
+    setArtistBio(mbid, found || { bio: '', imageUrl: null, wikiUrl: null });
+  } catch (err) {
+    console.error(`Wikipedia bio lookup failed for newly-detected death ${artist.name}:`, err.message);
+  }
+}
+
 // Exported so /admin/check-deaths-now (server.js) can trigger this on
 // demand instead of waiting up to CHECK_INTERVAL_MS for the next scheduled
 // pass - useful right after manually importing an artist whose death is
@@ -64,6 +89,7 @@ export async function checkForDeaths() {
     }
     if (newlyMarked.length) {
       console.log(`Wikidata death check: ${newlyMarked.length} artist(s) newly marked`);
+      for (const { mbid } of newlyMarked) await fillMissingBio(mbid);
       // Don't wait for the posters' own hourly timers to happen to tick -
       // a freshly-flagged death is exactly the case worth posting about
       // same-day rather than up to an hour late. Both functions already

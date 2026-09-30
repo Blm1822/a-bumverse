@@ -1047,6 +1047,16 @@ export function recentlyAddedPage(limit = 60, offset = 0) {
     .all(limit, offset);
 }
 
+// Lighter than getArtistLocal() (skips the discography/appearances queries)
+// for callers that only need to decide whether a Wikipedia bio/image lookup
+// is worth doing - currently just wikidataDeaths.js, proactively filling
+// in a freshly-detected death's photo before the social posters see it,
+// same "bio === null means never looked up" logic server.js's /api/artist
+// route uses reactively on a page view.
+export function getArtistBioStatus(mbid) {
+  return db.prepare('SELECT name, disambiguation, bio FROM artists WHERE mbid = ?').get(mbid);
+}
+
 export function getArtistLocal(mbid) {
   const artist = db
     .prepare(
