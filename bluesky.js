@@ -32,18 +32,26 @@ async function getSession() {
   return res.json();
 }
 
-// Byte-offset link facet, per AT Protocol's richtext spec - without this the
-// URL in the post text is just plain unlinked text, not a real link.
-function linkFacet(text, url) {
-  const idx = text.indexOf(url);
-  if (idx === -1) return [];
+// Byte-offset link facet(s), per AT Protocol's richtext spec - without this
+// a URL in the post text is just plain unlinked text, not a real link.
+// `urls` can be a single string or an array (e.g. the Albumverse link plus a
+// "listen on Spotify" link) - each gets its own facet if it's actually
+// present in `text` (truncateForBluesky may have cut one off, in which case
+// indexOf just skips it rather than producing a broken facet).
+function linkFacets(text, urls) {
   const encoder = new TextEncoder();
-  const byteStart = encoder.encode(text.slice(0, idx)).length;
-  const byteEnd = byteStart + encoder.encode(url).length;
-  return [{
-    index: { byteStart, byteEnd },
-    features: [{ $type: 'app.bsky.richtext.facet#link', uri: url }],
-  }];
+  const facets = [];
+  for (const url of [].concat(urls || [])) {
+    const idx = text.indexOf(url);
+    if (idx === -1) continue;
+    const byteStart = encoder.encode(text.slice(0, idx)).length;
+    const byteEnd = byteStart + encoder.encode(url).length;
+    facets.push({
+      index: { byteStart, byteEnd },
+      features: [{ $type: 'app.bsky.richtext.facet#link', uri: url }],
+    });
+  }
+  return facets;
 }
 
 export function truncateForBluesky(text) {
@@ -76,7 +84,7 @@ async function uploadImage(session, imageUrl) {
   }
 }
 
-export async function postToBluesky(text, url, imageUrl, imageAlt) {
+export async function postToBluesky(text, urls, imageUrl, imageAlt) {
   try {
     const session = await getSession();
     if (!session) return false;
@@ -86,7 +94,7 @@ export async function postToBluesky(text, url, imageUrl, imageAlt) {
       $type: 'app.bsky.feed.post',
       text,
       createdAt: new Date().toISOString(),
-      facets: url ? linkFacet(text, url) : [],
+      facets: linkFacets(text, urls),
       ...(blob && {
         embed: {
           $type: 'app.bsky.embed.images',

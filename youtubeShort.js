@@ -30,6 +30,14 @@ function todayUTC() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Same "no API key, just a search URL" approach as public/app.js's own
+// listenLinks() (and socialPoster.js's matching helper) - Spotify alone to
+// keep the description's first line short even though YouTube itself has no
+// character limit worth worrying about here.
+function spotifySearchUrl(query) {
+  return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
+}
+
 function inMemoriamScript() {
   const [artist] = inMemoriam(1);
   if (!artist || hasPostedAboutItem('in_memoriam_yt', artist.id)) return null;
@@ -57,6 +65,7 @@ function inMemoriamScript() {
     contentType: 'in_memoriam_yt',
     itemId: artist.id,
     url: `${SITE_URL}/artist/${artist.id}`,
+    listenUrl: spotifySearchUrl(artist.name),
   };
 }
 
@@ -84,6 +93,7 @@ function onThisDayScript() {
     contentType: 'on_this_day_yt',
     itemId: album.id,
     url: `${SITE_URL}/album/${album.id}`,
+    listenUrl: spotifySearchUrl(`${album.artist} ${album.title}`),
   };
 }
 
@@ -103,6 +113,7 @@ function trendingScript() {
     contentType: 'trending_yt',
     itemId: album.id,
     url: `${SITE_URL}/album/${album.id}`,
+    listenUrl: spotifySearchUrl(`${album.artist} ${album.title}`),
   };
 }
 
@@ -196,7 +207,7 @@ export async function buildDailyShort() {
       itemId: script.itemId,
       url: script.url,
       title: script.title,
-      description: `${script.narration} ${script.url}`,
+      description: `${script.narration} ${script.url}\nListen: ${script.listenUrl}`,
     };
   } catch (err) {
     console.error('daily short render failed:', err.message);

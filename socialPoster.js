@@ -20,14 +20,22 @@ function todayUTC() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Same "no API key, just a search URL" approach as public/app.js's own
+// listenLinks() - Spotify alone (rather than all three services that page
+// offers) to keep post text short against Bluesky's 300-grapheme cap.
+function spotifySearchUrl(query) {
+  return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
+}
+
 function inMemoriamPost() {
   const [artist] = inMemoriam(1);
   if (!artist || hasPostedAboutItem('in_memoriam', artist.id)) return null;
   const year = artist.diedDate ? artist.diedDate.slice(0, 4) : '';
   const url = `${SITE_URL}/artist/${artist.id}`;
+  const listenUrl = spotifySearchUrl(artist.name);
   return {
-    text: truncateForBluesky(`Remembering ${artist.name}${year ? ` (d. ${year})` : ''}. ${url}`),
-    url,
+    text: truncateForBluesky(`Remembering ${artist.name}${year ? ` (d. ${year})` : ''}. ${url} Listen: ${listenUrl}`),
+    urls: [url, listenUrl],
     contentType: 'in_memoriam',
     itemId: artist.id,
     imageUrl: artist.imageUrl,
@@ -50,11 +58,14 @@ function onThisDayPost() {
   if (hasPostedAboutItem('on_this_day', album.id)) return null;
   const year = (album.date || '').slice(0, 4);
   const url = `${SITE_URL}/album/${album.id}`;
+  const listenUrl = spotifySearchUrl(`${album.artist} ${album.title}`);
   return {
-    text: truncateForBluesky(`On this day in ${year}, ${album.artist} released "${album.title}". ${url}`),
-    url,
+    text: truncateForBluesky(`On this day in ${year}, ${album.artist} released "${album.title}". ${url} Listen: ${listenUrl}`),
+    urls: [url, listenUrl],
     contentType: 'on_this_day',
     itemId: album.id,
+    imageUrl: album.coverArtUrl,
+    imageAlt: album.title,
   };
 }
 
@@ -62,11 +73,14 @@ function trendingPost() {
   const [album] = trendingAlbumsForSocial(1);
   if (!album || !album.views || hasPostedAboutItem('trending', album.id)) return null;
   const url = `${SITE_URL}/album/${album.id}`;
+  const listenUrl = spotifySearchUrl(`${album.artist} ${album.title}`);
   return {
-    text: truncateForBluesky(`Trending on Albumverse this week: "${album.title}" by ${album.artist}. ${url}`),
-    url,
+    text: truncateForBluesky(`Trending on Albumverse this week: "${album.title}" by ${album.artist}. ${url} Listen: ${listenUrl}`),
+    urls: [url, listenUrl],
     contentType: 'trending',
     itemId: album.id,
+    imageUrl: album.coverArtUrl,
+    imageAlt: album.title,
   };
 }
 
@@ -82,7 +96,7 @@ export async function checkAndPostDaily() {
     // twice, so this can't loop or repeat.
     const memoriam = inMemoriamPost();
     if (memoriam) {
-      const ok = await postToBluesky(memoriam.text, memoriam.url, memoriam.imageUrl, memoriam.imageAlt);
+      const ok = await postToBluesky(memoriam.text, memoriam.urls, memoriam.imageUrl, memoriam.imageAlt);
       if (ok) recordSocialPost(PLATFORM, date, memoriam.contentType, memoriam.itemId);
       return;
     }
@@ -91,7 +105,7 @@ export async function checkAndPostDaily() {
     const post = onThisDayPost() || trendingPost();
     if (!post) return; // nothing worth posting today - never force filler content
 
-    const ok = await postToBluesky(post.text, post.url, post.imageUrl, post.imageAlt);
+    const ok = await postToBluesky(post.text, post.urls, post.imageUrl, post.imageAlt);
     if (ok) recordSocialPost(PLATFORM, date, post.contentType, post.itemId);
   } catch (err) {
     console.error('daily social post check failed:', err.message);
