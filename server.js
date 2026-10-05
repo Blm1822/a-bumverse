@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName } from './db.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
@@ -1185,6 +1185,35 @@ app.get('/admin/upload-test-short', requireAnalyticsAuth, async (req, res) => {
 app.get('/admin/check-deaths-now', requireAnalyticsAuth, async (req, res) => {
   const result = await checkForDeaths();
   res.json(result);
+});
+
+// For the rare case where an artist's first Wikipedia bio/image lookup
+// (triggered reactively by a page view, or proactively by wikidataDeaths.js
+// right after a death is detected) genuinely finds nothing - bio gets cached
+// as '' specifically so the site never re-hits Wikipedia on every view of a
+// legitimately bio-less stub artist, but that's indistinguishable from a
+// one-off lookup failure (a transient Wikipedia hiccup, a disambiguation
+// miss) without this. Takes ?name= rather than an mbid since that's what's
+// on hand when poking at this from a browser. Force-retries regardless of
+// current bio state, unlike the reactive lookup's needsLookup check.
+app.get('/admin/refresh-bio', requireAnalyticsAuth, async (req, res) => {
+  const name = (req.query.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Provide ?name=' });
+
+  const matches = findArtistsByName(name);
+  if (!matches.length) return res.status(404).json({ error: `No artist matching "${name}".` });
+  if (matches.length > 1) {
+    return res.json({ ambiguous: true, matches: matches.map((m) => ({ id: m.id, name: m.name, disambiguation: m.disambiguation })) });
+  }
+
+  const artist = matches[0];
+  try {
+    const found = await getArtistBio(artist.name, artist.disambiguation);
+    setArtistBio(artist.id, found || { bio: '', imageUrl: null, wikiUrl: null });
+    res.json({ id: artist.id, name: artist.name, found: !!found, imageUrl: found?.imageUrl || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {

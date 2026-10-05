@@ -1057,6 +1057,18 @@ export function getArtistBioStatus(mbid) {
   return db.prepare('SELECT name, disambiguation, bio FROM artists WHERE mbid = ?').get(mbid);
 }
 
+// Name lookup for the one-off /admin/refresh-bio route (server.js) - every
+// other artist lookup in this file goes by mbid, which an admin poking at a
+// stuck bio from the browser won't have handy.
+export function findArtistsByName(name, limit = 5) {
+  return db
+    .prepare(
+      `SELECT mbid as id, name, disambiguation, bio, wiki_image_url as imageUrl, died_date as diedDate
+       FROM artists WHERE name LIKE ? COLLATE NOCASE LIMIT ?`
+    )
+    .all(`%${name}%`, limit);
+}
+
 export function getArtistLocal(mbid) {
   const artist = db
     .prepare(
