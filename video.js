@@ -18,9 +18,25 @@
 import ffmpegPath from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { chmodSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+
+// ffmpeg-static's own postinstall script is what normally marks this binary
+// executable, but that can get silently skipped or lost depending on how a
+// deploy platform's build cache restores node_modules between deploys (seen
+// in production as a sudden `spawn .../ffmpeg EACCES` on a redeploy that had
+// been working fine before - nothing in this app's own code changed). Rather
+// than depend on the platform getting that right, re-assert it ourselves at
+// module load, once, before anything ever tries to spawn this binary.
+// Best-effort: if this itself fails (e.g. a genuinely read-only filesystem),
+// the spawn below will surface the real error anyway.
+try {
+  chmodSync(ffmpegPath, 0o755);
+} catch (err) {
+  console.error('Could not chmod ffmpeg-static binary:', err.message);
+}
 
 const WIDTH = 1080;
 const HEIGHT = 1920;
