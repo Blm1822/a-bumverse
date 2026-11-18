@@ -923,6 +923,35 @@ app.get('/user/:username', (req, res) => {
 // Real server-side redirect, not a client-side SPA route - works with no
 // JS, and a 302 to the actual canonical album URL means Google never has a
 // non-deterministic "/random" page to try to index.
+// Privacy policy: needed for the YouTube API app's Google sign-in (publishing status
+// "In production") and for Amazon Associates' disclosure requirement.
+app.get('/privacy', (req, res) => {
+  logView(req, null);
+  const contact = process.env.CONTACT_EMAIL ? `<a href="mailto:${escapeAttr(process.env.CONTACT_EMAIL)}">${escapeAttr(process.env.CONTACT_EMAIL)}</a>` : 'the contact details on our social accounts';
+  res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy — Albumverse</title><link rel="stylesheet" href="/style.css" /></head>
+  <body><main style="max-width:760px;margin:40px auto;padding:0 20px;line-height:1.6">
+  <p><a href="/">&larr; Albumverse</a></p>
+  <h1>Privacy Policy</h1>
+  <p><em>Last updated: November 17, 2026</em></p>
+  <p>Albumverse (albumverse.com) is a music credits database. This page explains what we collect and why.</p>
+  <h2>What we collect</h2>
+  <ul>
+    <li><strong>Usage data.</strong> When you visit a page we log the page address, the referring page, your browser's user-agent string, and the time. We also log simple actions such as searches and clicks on credits or outbound links. We use this only to understand which pages are useful. We do not sell it or use it for advertising profiles.</li>
+    <li><strong>Accounts (optional).</strong> If you create an account we store your username, a hashed (not readable) password, a hashed recovery code, and the ratings, reviews and saved albums you add.</li>
+    <li><strong>Cookies.</strong> We use one session cookie to keep you signed in. We don't use advertising or tracking cookies.</li>
+  </ul>
+  <h2>Links to other sites</h2>
+  <p>Albumverse links to Spotify, Apple Music, YouTube Music, Amazon, SeatGeek and others. Albumverse is a participant in the Amazon Services LLC Associates Program, an affiliate advertising program; as an Amazon Associate we earn from qualifying purchases. Sites you visit through our links have their own privacy policies.</p>
+  <h2>YouTube</h2>
+  <p>Our YouTube channel publishes short videos using YouTube API Services. Videos on YouTube are covered by the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a> and the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>. The site does not access your YouTube or Google account.</p>
+  <h2>Music data</h2>
+  <p>Album, artist and credit information comes from MusicBrainz, Discogs and Wikipedia.</p>
+  <h2>Your choices</h2>
+  <p>You can use Albumverse without an account. To delete your account and its reviews, contact us at ${contact}.</p>
+  </main></body></html>`);
+});
+
 app.get('/random', (req, res) => {
   const id = randomAlbumId();
   res.redirect(id ? `/album/${id}` : '/');
