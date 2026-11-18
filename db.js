@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { tokens, rankAlbums } from './searchRank.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // DATA_DIR lets a deploy point this at a mounted persistent volume (e.g. Railway).
@@ -165,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_credits_track ON track_credits(track_id);
 CREATE INDEX IF NOT EXISTS idx_credits_artist ON track_credits(artist_mbid);
+CREATE INDEX IF NOT EXISTS idx_album_artists_artist ON album_artists(artist_mbid);
 CREATE INDEX IF NOT EXISTS idx_credits_name ON track_credits(name COLLATE NOCASE);
 -- A person's full career from MusicBrainz relationships (personCredits.js), one row per
 -- credit mapped to the original album (release group). Albums may not be in \`albums\` yet;
@@ -231,6 +233,9 @@ for (const col of ['type', 'born_date', 'died_date', 'life_span_checked_at']) {
 // Per-song musician credits (trackCredits.js): NULL means the album hasn't had
 // its song credits refreshed yet.
 if (!albumColumns.includes('song_credits_at')) db.exec('ALTER TABLE albums ADD COLUMN song_credits_at TEXT;');
+// How many releases (pressings, reissues) MusicBrainz lists for the album: a rough
+// fame signal for search ranking (searchRank.js). Filled by the song credits refresh.
+if (!albumColumns.includes('release_count')) db.exec('ALTER TABLE albums ADD COLUMN release_count INTEGER;');
 
 // Migration for DBs created before password-reset recovery codes existed -
 // those users simply have none until they sign in and generate one (see
@@ -432,6 +437,7 @@ export function upsertAlbum(detail, artistMbids) {
        artist_credit = excluded.artist_credit, label = excluded.label, cover_art_url = excluded.cover_art_url`
   );
   insertAlbum.run(detail.id, detail.title, detail.type, detail.date, detail.artist, detail.label, detail.coverArtUrl);
+  if (detail.releaseCount) db.prepare('UPDATE albums SET release_count = ? WHERE mbid = ?').run(detail.releaseCount, detail.id);
 
   const linkArtist = db.prepare(
     'INSERT OR IGNORE INTO album_artists (album_mbid, artist_mbid) VALUES (?, ?)'
@@ -551,7 +557,7 @@ export function markSongCredits(mbid) {
 // matched to saved ones by recording id, then by position). Saved writers stay;
 // new writers only fill songs that had none. Album-wide credits are replaced
 // when the fresh list has any. Returns how many songs now list a musician.
-export function saveSongCredits(albumMbid, tracks, albumCredits = []) {
+export function saveSongCredits(albumMbid, tracks, albumCredits = [], releaseCount = null) {
   const saved = db.prepare('SELECT id, position, recording_mbid AS rec FROM tracks WHERE album_mbid = ?').all(albumMbid);
   const byRec = new Map(saved.filter((t) => t.rec).map((t) => [t.rec, t.id]));
   const byPos = new Map(saved.map((t) => [Number(t.position), t.id]));
@@ -583,7 +589,7 @@ export function saveSongCredits(albumMbid, tracks, albumCredits = []) {
       const ins = db.prepare('INSERT INTO album_credits (album_mbid, name, role, source) VALUES (?, ?, ?, ?)');
       for (const c of albumCredits) ins.run(albumMbid, c.name, c.role, c.source || 'discogs');
     }
-    db.prepare("UPDATE albums SET song_credits_at = datetime('now') WHERE mbid = ?").run(albumMbid);
+    db.prepare("UPDATE albums SET song_credits_at = datetime('now'), release_count = COALESCE(?, release_count) WHERE mbid = ?").run(releaseCount, albumMbid);
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -628,27 +634,44 @@ export function countAlbumsNeedingEnrichment() {
   return db.prepare('SELECT COUNT(*) as n FROM albums WHERE enriched_at IS NULL').get().n;
 }
 
+// Album search: every query word must appear in the title or artist; results
+// ranked by searchRank.js (match quality + how well-known the album is).
+function searchWhere(query) {
+  const words = tokens(query).slice(0, 8);
+  if (!words.length) return { sql: '0', args: [] };
+  return {
+    sql: words.map(() => "(al.title || ' ' || al.artist_credit) LIKE ? COLLATE NOCASE").join(' AND '),
+    args: words.map((w) => `%${w}%`),
+  };
+}
+
 export function searchLocal(query, limit = 24, offset = 0) {
-  const like = `%${query}%`;
-  return db
+  const w = searchWhere(query);
+  const exact = String(query || '').trim();
+  const cap = Math.max(300, offset + limit + 50);
+  const rows = db
     .prepare(
-      `SELECT mbid as id, title, type, release_date as date, artist_credit as artist, cover_art_url as coverArtUrl${ratingCols()}
-       FROM albums
-       WHERE title LIKE ? COLLATE NOCASE OR artist_credit LIKE ? COLLATE NOCASE
-       ORDER BY release_date ASC
-       LIMIT ? OFFSET ?`
+      `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist,
+              al.cover_art_url as coverArtUrl, al.release_count as releaseCount${ratingCols('al.')},
+              (SELECT COUNT(*) FROM page_views pv WHERE pv.path = '/album/' || al.mbid AND pv.is_bot = 0) as views,
+              (SELECT MAX(n) FROM (SELECT COUNT(*) AS n FROM album_artists x
+                 WHERE x.artist_mbid IN (SELECT artist_mbid FROM album_artists WHERE album_mbid = al.mbid)
+                 GROUP BY x.artist_mbid)) as artistAlbums
+       FROM albums al
+       WHERE ${w.sql}
+       ORDER BY CASE WHEN al.title = ? COLLATE NOCASE THEN 0 WHEN al.title LIKE ? COLLATE NOCASE THEN 1 ELSE 2 END,
+                COALESCE(al.release_count, 0) DESC
+       LIMIT ?`
     )
-    .all(like, like, limit, offset);
+    .all(...w.args, exact, `${exact}%`, cap);
+  return rankAlbums(query, rows)
+    .slice(offset, offset + limit)
+    .map(({ views, artistAlbums, releaseCount, ...a }) => a);
 }
 
 export function countSearchLocal(query) {
-  const like = `%${query}%`;
-  return db
-    .prepare(
-      `SELECT COUNT(*) as n FROM albums
-       WHERE title LIKE ? COLLATE NOCASE OR artist_credit LIKE ? COLLATE NOCASE`
-    )
-    .get(like, like).n;
+  const w = searchWhere(query);
+  return db.prepare(`SELECT COUNT(*) as n FROM albums al WHERE ${w.sql}`).get(...w.args).n;
 }
 
 export function recentlyAdded(limit = 12) {

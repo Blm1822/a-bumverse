@@ -11,6 +11,7 @@ import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, person
 import { searchReleaseGroups, getAlbumDetail, searchArtist } from './mb.js';
 import { prioritizePerson, startPersonEnricher } from './personCredits.js';
 import { addDiscogsCredits, prioritizeAlbum, startSongCreditsRefresh } from './trackCredits.js';
+import { rankAlbums, hasStrongMatch, matchScore } from './searchRank.js';
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
@@ -387,18 +388,22 @@ app.get('/api/search', async (req, res) => {
   // compose with our local offset, so every later page (and any page once
   // local coverage is decent) is local-only with an exact DB-backed total,
   // which is what "load more" needs to know when to stop.
-  if (offset === 0 && local.length < LOCAL_RESULT_FLOOR) {
+  // Also ask when nothing local looks like the album meant (only a tribute or a
+  // demo version is saved, say), then rank both together.
+  if (offset === 0 && (local.length < LOCAL_RESULT_FLOOR || !hasStrongMatch(q, local))) {
     try {
-      const live = await searchReleaseGroups(q);
+      const live = await searchReleaseGroups(q, 25);
+      const liveById = new Map(live.map((r) => [r.id, r]));
       const seen = new Set(local.map((r) => r.id));
-      const merged = [...local];
+      const merged = local.map((r) => ({ ...r, releaseCount: liveById.get(r.id)?.releaseCount || null }));
       for (const r of live) {
-        if (!seen.has(r.id)) {
+        if (!seen.has(r.id) && matchScore(q, r) >= 30) {
           seen.add(r.id);
           merged.push({ ...r, inDb: false });
         }
       }
-      return res.json({ results: merged, total: merged.length, people });
+      const ranked = rankAlbums(q, merged).map(({ releaseCount, ...r }) => r);
+      return res.json({ results: ranked, total: Math.max(ranked.length, countSearchLocal(q)), people });
     } catch (err) {
       console.error('live search failed', err.message);
       // MusicBrainz hiccup shouldn't break search entirely - fall back to what we have locally.
