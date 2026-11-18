@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createHash, randomBytes } from 'node:crypto';
 import { tokens, rankAlbums } from './searchRank.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -259,8 +260,31 @@ const BOT_UA_RE = /bot|crawl|spider|slurp|facebookexternalhit|whatsapp|telegramb
 // within the site; it's the scanner's own request trail leaking through.
 const BOT_REFERRER_RE = /wp-(admin|content|login|json|includes|sitemap)|xmlrpc\.php|phpmyadmin|\.env$|wordpress/i;
 
-function isBotRequest(ua, referrer) {
-  return !ua || BOT_UA_RE.test(ua) || (!!referrer && BOT_REFERRER_RE.test(referrer));
+// Desktop browsers update themselves; a desktop Chrome, Edge or Firefox more
+// than about two years out of date is almost always a scraper wearing an old,
+// copied browser ID (Nov 2026: Chrome 120-122 / Firefox 122-127 at ~600 pages
+// each in two days). Phones are left alone: older phones can get stuck on old
+// versions for real.
+// Chrome/Edge 125 = May 2024; Firefox 128 = July 2024 (also the oldest
+// long-term-support Firefox some Linux setups still run).
+const OLD_DESKTOP = { Chrome: 125, Edg: 125, Firefox: 128 };
+export function isOldDesktopBrowser(ua) {
+  if (!ua || /Mobile|Android|iPhone|iPad/i.test(ua)) return false;
+  if (!/Windows NT|Macintosh|X11|Linux x86_64/.test(ua)) return false;
+  for (const [name, min] of Object.entries(OLD_DESKTOP)) {
+    const m = ua.match(new RegExp(`${name}\\/(\\d+)\\.`));
+    if (m && Number(m[1]) < min) return true;
+  }
+  return false;
+}
+
+// "{search_term_string}" is the placeholder in the site's search markup for
+// Google; only bots try it literally.
+const TEMPLATE_QUERY_RE = /\{search_term_string\}/i;
+
+function isBotRequest(ua, referrer, query = null) {
+  return !ua || BOT_UA_RE.test(ua) || (!!referrer && BOT_REFERRER_RE.test(referrer))
+    || isOldDesktopBrowser(ua) || (!!query && TEMPLATE_QUERY_RE.test(String(query)));
 }
 
 // Migration for DBs created before bot-traffic detection existed. Existing
@@ -301,23 +325,91 @@ if (!db.prepare('PRAGMA table_info(page_views)').all().map((c) => c.name).includ
 // most-viewed pages top out well under that over a whole week), so any
 // (user-agent, day) pair that does gets retroactively reclassified as bot -
 // re-run on every boot since new scraping days show up over time.
+// Visitor id: a hash of IP + browser ID + day with a secret that only lives in
+// memory, so the same visitor can be counted within a day but no IP is stored
+// and nothing links across days. Lets the volume rule tell one scraper apart
+// from many real people who happen to use the same phone and browser.
+if (!db.prepare('PRAGMA table_info(page_views)').all().map((c) => c.name).includes('visitor')) {
+  db.exec('ALTER TABLE page_views ADD COLUMN visitor TEXT;');
+}
+const VISITOR_SECRET = randomBytes(16).toString('hex');
+export function visitorId(ip, ua) {
+  if (!ip) return null;
+  const day = new Date().toISOString().slice(0, 10);
+  return createHash('sha256').update(`${VISITOR_SECRET}|${day}|${ip}|${ua || ''}`).digest('hex').slice(0, 16);
+}
+
 const BOT_DISTINCT_PATHS_PER_DAY = 100;
-{
+export function reclassifyBotTraffic() {
   const volumetric = db
     .prepare(
       `SELECT user_agent as userAgent, date(created_at) as day
        FROM page_views
-       WHERE is_bot = 0 AND user_agent IS NOT NULL
+       WHERE is_bot = 0 AND user_agent IS NOT NULL AND visitor IS NULL
        GROUP BY user_agent, day
        HAVING COUNT(DISTINCT path) > ?`
     )
     .all(BOT_DISTINCT_PATHS_PER_DAY);
   const markDayBot = db.prepare(
-    "UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND user_agent = ? AND date(created_at) = ?"
+    "UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND visitor IS NULL AND user_agent = ? AND date(created_at) = ?"
   );
-  for (const r of volumetric) {
-    markDayBot.run(r.userAgent, r.day);
+  let n = 0;
+  // Rows with a visitor id: judge each visitor on their own.
+  const byVisitor = db.prepare(
+    `SELECT visitor FROM page_views WHERE is_bot = 0 AND visitor IS NOT NULL
+     GROUP BY visitor HAVING COUNT(DISTINCT path) > ?`
+  ).all(BOT_DISTINCT_PATHS_PER_DAY);
+  const markVisitor = db.prepare('UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND visitor = ?');
+  for (const r of byVisitor) n += Number(markVisitor.run(r.visitor).changes);
+  // Older rows (no visitor id): by browser ID and day, as before.
+  for (const r of volumetric) n += Number(markDayBot.run(r.userAgent, r.day).changes);
+  // Old desktop browser IDs and template searches (rules added Nov 2026).
+  const rows = db.prepare('SELECT id, user_agent, query FROM page_views WHERE is_bot = 0').all();
+  const markBot = db.prepare('UPDATE page_views SET is_bot = 1 WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const r of rows) {
+      if (isOldDesktopBrowser(r.user_agent) || (r.query && TEMPLATE_QUERY_RE.test(r.query))) {
+        markBot.run(r.id);
+        n++;
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
+  db.prepare("UPDATE events SET is_bot = 1 WHERE is_bot = 0 AND path = '/search' AND detail LIKE '%{search_term_string}%'").run();
+  return n;
+}
+
+// Live version of the same volume rule: count each browser ID's distinct pages
+// today in memory, so a scraper is caught after its 100th page instead of at
+// the next restart (and stops counting as a visitor right away).
+const liveCounts = { day: '', seen: new Map(), flagged: new Set() };
+function trackVolume(key, p) {
+  if (!key) return false;
+  const day = new Date().toISOString().slice(0, 10);
+  if (liveCounts.day !== day) Object.assign(liveCounts, { day, seen: new Map(), flagged: new Set() });
+  if (liveCounts.flagged.has(key)) return true;
+  let set = liveCounts.seen.get(key);
+  if (!set) liveCounts.seen.set(key, (set = new Set()));
+  set.add(p);
+  if (set.size > BOT_DISTINCT_PATHS_PER_DAY) {
+    liveCounts.flagged.add(key);
+    liveCounts.seen.delete(key);
+    db.prepare('UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND visitor = ?').run(key);
+    return true;
+  }
+  return false;
+}
+
+// For callers deciding whether a request should count (e.g. moving a page to the
+// front of a background queue): true for known bots and today's volume offenders.
+export function isBotTraffic(ua, referrer = null, query = null, ip = null) {
+  if (isBotRequest(ua, referrer, query)) return true;
+  const key = visitorId(ip, ua);
+  return !!key && liveCounts.day === new Date().toISOString().slice(0, 10) && liveCounts.flagged.has(key);
 }
 
 // Migration: social_posts used to have UNIQUE(platform, posted_date), which
@@ -1125,9 +1217,11 @@ export function artistIdsByExactNames(names) {
   return out;
 }
 
-export function logPageView({ path: p, query, referrer, userAgent }) {
-  db.prepare('INSERT INTO page_views (path, query, referrer, user_agent, is_bot) VALUES (?, ?, ?, ?, ?)').run(
-    p, query || null, referrer || null, userAgent || null, isBotRequest(userAgent, referrer) ? 1 : 0
+export function logPageView({ path: p, query, referrer, userAgent, ip = null }) {
+  const visitor = visitorId(ip, userAgent);
+  const bot = isBotRequest(userAgent, referrer, query) || trackVolume(visitor, p);
+  db.prepare('INSERT INTO page_views (path, query, referrer, user_agent, is_bot, visitor) VALUES (?, ?, ?, ?, ?, ?)').run(
+    p, query || null, referrer || null, userAgent || null, bot ? 1 : 0, visitor
   );
 }
 
