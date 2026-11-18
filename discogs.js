@@ -16,13 +16,14 @@
 // import run stays well under either.
 
 import { getCachedResponse, setCachedResponse } from './db.js';
+import { pacedQueue } from './lanes.js';
 
 const DISCOGS_ROOT = 'https://api.discogs.com';
 const USER_AGENT = 'Albumverse/0.3.0 (music database project; contact: none)';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24; // release data barely changes - cache a full day.
 const REQUEST_SPACING_MS = 2500;
 
-let queue = Promise.resolve();
+const queue = pacedQueue(REQUEST_SPACING_MS); // visitor requests jump ahead of background jobs
 
 function authHeaders() {
   const headers = { 'User-Agent': USER_AGENT, Accept: 'application/json' };
@@ -42,9 +43,7 @@ function discogsFetch(url) {
     return data;
   };
 
-  const result = queue.then(run);
-  queue = result.catch(() => {}).then(() => new Promise((r) => setTimeout(r, REQUEST_SPACING_MS)));
-  return result;
+  return queue.add(run);
 }
 
 // Discogs adds " (2)" to tell same-named people apart. Use the person's main

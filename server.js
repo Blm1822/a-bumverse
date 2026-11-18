@@ -8,10 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, markSongCredits, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames, browsePeople, countPeople, PEOPLE_ROLES, songsForPerson, isBotTraffic, reclassifyBotTraffic } from './db.js';
 import { buildHome } from './home.js';
 import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups, knownFor } from './credits.js';
-import { searchReleaseGroups, getAlbumDetail, searchArtist } from './mb.js';
+import { searchReleaseGroups, searchAlbumsByTitle, getAlbumDetail, searchArtist } from './mb.js';
 import { prioritizePerson, startPersonEnricher } from './personCredits.js';
 import { addDiscogsCredits, prioritizeAlbum, startSongCreditsRefresh } from './trackCredits.js';
-import { rankAlbums, hasStrongMatch, matchScore } from './searchRank.js';
+import { rankAlbums, hasStrongMatch, matchScore, publicAlbum } from './searchRank.js';
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
@@ -372,7 +372,7 @@ app.get('/api/user/:username/reviews', (req, res) => {
 app.get('/api/suggest', (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.json({ results: [], people: [] });
-  res.json({ results: searchLocal(q, 8), people: searchPeople(q, 3) });
+  res.json({ results: searchLocal(q, 8).map(publicAlbum), people: searchPeople(q, 3) });
 });
 
 app.get('/api/search', async (req, res) => {
@@ -393,17 +393,27 @@ app.get('/api/search', async (req, res) => {
   // demo version is saved, say), then rank both together.
   if (offset === 0 && (local.length < LOCAL_RESULT_FLOOR || !hasStrongMatch(q, local))) {
     try {
-      const live = await searchReleaseGroups(q, 25);
-      const liveById = new Map(live.map((r) => [r.id, r]));
+      let live = await searchReleaseGroups(q, 25);
+      // Still nothing well known? Ask for every album with exactly this title; the one
+      // with hundreds of releases is the one people mean.
+      if (!hasStrongMatch(q, [...local, ...live]) && q.split(/\s+/).length <= 6) {
+        try {
+          live = [...live, ...(await searchAlbumsByTitle(q))];
+        } catch (err) {
+          console.error('title search failed', err.message);
+        }
+      }
+      const liveById = new Map();
+      for (const r of live) if (!liveById.has(r.id) || (r.releaseCount || 0) > (liveById.get(r.id).releaseCount || 0)) liveById.set(r.id, r);
       const seen = new Set(local.map((r) => r.id));
-      const merged = local.map((r) => ({ ...r, releaseCount: liveById.get(r.id)?.releaseCount || null }));
-      for (const r of live) {
+      const merged = local.map((r) => ({ ...r, releaseCount: liveById.get(r.id)?.releaseCount || r.releaseCount || null }));
+      for (const r of liveById.values()) {
         if (!seen.has(r.id) && matchScore(q, r) >= 30) {
           seen.add(r.id);
           merged.push({ ...r, inDb: false });
         }
       }
-      const ranked = rankAlbums(q, merged).map(({ releaseCount, ...r }) => r);
+      const ranked = rankAlbums(q, merged).slice(0, 40).map(publicAlbum);
       return res.json({ results: ranked, total: Math.max(ranked.length, countSearchLocal(q)), people });
     } catch (err) {
       console.error('live search failed', err.message);
@@ -411,7 +421,7 @@ app.get('/api/search', async (req, res) => {
     }
   }
 
-  res.json({ results: local, total: countSearchLocal(q), people });
+  res.json({ results: local.map(publicAlbum), total: countSearchLocal(q), people });
 });
 
 function withCreditSummary(album) {

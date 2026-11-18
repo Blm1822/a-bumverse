@@ -7,6 +7,7 @@
 // our tracks, and runs a background job that refreshes albums saved before
 // either source was used this way, most-viewed first.
 
+import { runInBackground } from './lanes.js';
 import { cleanDiscogsName, discogsAlbumCredits, findDiscogsRelease } from './discogs.js';
 import { getAlbumDetail } from './mb.js';
 import { albumsNeedingSongCredits, saveSongCredits, albumSongCreditsAt } from './db.js';
@@ -166,8 +167,10 @@ export function startSongCreditsRefresh({ everyMs = 4000, startAfterMs = 90000 }
     console.log('song credits refresh off (SONG_CREDITS=off)');
     return;
   }
+  // Background lane: visitors' MusicBrainz/Discogs requests go ahead of these.
+  const bgTick = () => runInBackground(tick);
   setTimeout(() => {
-    tick();
-    setInterval(tick, everyMs).unref();
+    bgTick();
+    setInterval(bgTick, everyMs).unref();
   }, startAfterMs).unref();
 }

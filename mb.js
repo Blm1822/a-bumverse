@@ -3,12 +3,13 @@
 // serialized queue with a disk-persisted cache (survives restarts/deploys)
 // to avoid re-hitting it needlessly.
 import { getCachedResponse, setCachedResponse } from './db.js';
+import { pacedQueue } from './lanes.js';
 
 const MB_ROOT = 'https://musicbrainz.org/ws/2';
 export const CAA_ROOT = 'https://coverartarchive.org';
 const USER_AGENT = 'Albumverse/0.3.0 (music database project; contact: none)';
 
-let queue = Promise.resolve();
+const queue = pacedQueue(1300); // visitor requests jump ahead of background jobs
 const CACHE_TTL_MS = 1000 * 60 * 30;
 
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
@@ -49,9 +50,7 @@ export function mbFetch(url) {
       return data;
     });
 
-  const result = queue.then(() => run());
-  queue = result.catch(() => {}).then(() => new Promise((r) => setTimeout(r, 1300)));
-  return result;
+  return queue.add(run);
 }
 
 export async function searchReleaseGroups(query, limit = 15) {
@@ -65,6 +64,14 @@ export async function searchReleaseGroups(query, limit = 15) {
     artist: (rg['artist-credit'] || []).map((a) => a.name).join(', '),
     releaseCount: rg.count || null,
   }));
+}
+
+// Albums whose title is exactly the query, up to 100, each with its release count
+// (MusicBrainz's plain search scores every exact title the same, so the famous
+// album can be missing from the first page; the release count finds it).
+export async function searchAlbumsByTitle(title, limit = 100) {
+  const q = `releasegroup:"${String(title).replace(/["\\]/g, ' ')}" AND primarytype:album`;
+  return searchReleaseGroups(q, limit);
 }
 
 export async function searchArtist(name) {

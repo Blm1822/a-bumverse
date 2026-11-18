@@ -756,9 +756,13 @@ export function searchLocal(query, limit = 24, offset = 0) {
        LIMIT ?`
     )
     .all(...w.args, exact, `${exact}%`, cap);
+  // `known`: some sign this is a real, well-known record (searchRank.hasStrongMatch).
   return rankAlbums(query, rows)
     .slice(offset, offset + limit)
-    .map(({ views, artistAlbums, releaseCount, ...a }) => a);
+    .map(({ views, artistAlbums, ...a }) => ({
+      ...a,
+      known: (a.releaseCount || 0) >= 5 || (artistAlbums || 0) >= 5 || (views || 0) >= 10,
+    }));
 }
 
 export function countSearchLocal(query) {

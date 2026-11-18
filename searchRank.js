@@ -85,6 +85,15 @@ export function rankAlbums(q, list) {
 }
 
 // True when the list already has something that looks like the album meant.
+// An exact match only counts if it looks well known (several releases, an artist
+// with many albums here, or real visits): "Hotel California" by a covers act is
+// an exact title match, but not the album people mean.
 export function hasStrongMatch(q, list) {
-  return list.some((a) => matchScore(q, a) >= 98 && penalty(q, a) === 0);
+  return list.some((a) => matchScore(q, a) >= 98 && penalty(q, a) === 0
+    && (a.known === true || (a.releaseCount || 0) >= 5));
+}
+
+// Strip ranking-only fields before sending results to the browser.
+export function publicAlbum({ releaseCount, known, ...a }) {
+  return a;
 }
