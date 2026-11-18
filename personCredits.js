@@ -13,6 +13,7 @@ import { mbFetch } from './mb.js';
 
 const MB_ROOT = 'https://musicbrainz.org/ws/2';
 const BATCH = 40;
+const WORK_BATCH = 4;
 
 // ---------------------------------------------------------------- roles
 const CATEGORY_RULES = [
@@ -81,6 +82,18 @@ const norm = (s) => String(s || '').toLowerCase().replace(/\(.*?\)|\[.*?\]/g, ''
 // ---------------------------------------------------------------- turning MB responses into rows
 // Pure: relations (artist lookup) + search results -> credit rows. Tested with fixtures.
 export function buildRows({ relations, releasesById, recordingsById, recordingsByWorkTitle }) {
+  // An album's year = the earliest date we saw for any release of it (search results are often
+  // reissues: a 2018 pressing of a 1984 album still belongs to the 1984 release group).
+  const firstDate = new Map();
+  const see = (rel) => {
+    const g = rel?.['release-group'];
+    if (!g?.id || !rel.date) return;
+    const cur = firstDate.get(g.id);
+    if (!cur || String(rel.date) < String(cur)) firstDate.set(g.id, rel.date);
+  };
+  for (const r of releasesById.values()) see(r);
+  for (const r of recordingsById.values()) for (const x of r.releases || []) see(x);
+  for (const list of recordingsByWorkTitle.values()) for (const r of list) for (const x of r.releases || []) see(x);
   const rows = [];
   for (const rel of relations || []) {
     const target = rel['target-type'];
@@ -112,6 +125,7 @@ export function buildRows({ relations, releasesById, recordingsById, recordingsB
       continue;
     }
     if (!album) continue;
+    if (firstDate.has(album.id)) album = { ...album, date: firstDate.get(album.id) };
     rows.push({
       category, role, rgId: album.id, rgTitle: album.title, rgType: album.type,
       date: album.date, by, song, source: target,
@@ -155,7 +169,9 @@ export async function fetchPersonCredits(mbid, { maxRecordings = 600, maxWorks =
   const recordingsById = new Map();
   for (const c of chunks(recordingIds, BATCH)) for (const r of await search('recording', 'rid', c)) recordingsById.set(r.id, r);
   const recordingsByWorkTitle = new Map();
-  for (const c of chunks(workIds, BATCH)) {
+  // Small batches: a hit song can have hundreds of recordings (covers, karaoke), which would
+  // crowd every other song in the batch out of the 100 results.
+  for (const c of chunks(workIds, WORK_BATCH)) {
     for (const r of await search('recording', 'wid', c)) {
       const k = norm(r.title);
       if (!recordingsByWorkTitle.has(k)) recordingsByWorkTitle.set(k, []);

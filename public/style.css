@@ -873,3 +873,4 @@ table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-t
 .person-credits td.yr { color: var(--muted); width: 56px; }
 .person-credits .by, .person-credits .songs { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .name-link { color: inherit; text-decoration: underline dotted var(--border); text-underline-offset: 3px; }
+.person-credits .rg-type { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }

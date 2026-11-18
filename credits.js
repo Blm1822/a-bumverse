@@ -141,6 +141,11 @@ const ROLE_ALIASES = [
   [/master/, 'mastering'],
   [/^(lead vocals|vocals|vocal|voice|backing vocals|background vocals)$/, 'vocals'],
   [/^(performer|instrument|performing orchestra)$/, 'performer'],
+  [/guitar/, 'guitar'],
+  [/bass/, 'bass'],
+  [/drum|percussion/, 'drums'],
+  [/keyboard|piano|synth|organ/, 'keyboards'],
+  [/vocal/, 'vocals'],
 ];
 
 export function normalizeRole(role) {
@@ -193,7 +198,9 @@ function localRows(artist) {
 
 export function personSummary(artist, groups = artist?.creditGroups || personCreditGroups(artist, null)) {
   const nouns = [];
-  for (const g of groups) {
+  // weigh songwriting by songs written, not albums, so a hit songwriter reads as a songwriter
+  const weight = (g) => (g.key === 'songwriter' ? g.items.reduce((n, it) => n + Math.max(1, it.songCount || 0), 0) : g.count);
+  for (const g of [...groups].sort((a, b) => weight(b) - weight(a))) {
     if (nouns.length >= 2) break;
     if (g.key === 'performer') {
       const counts = new Map();

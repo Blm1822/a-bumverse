@@ -398,7 +398,7 @@ function renderCreditTable(el, group, limit = 60) {
   if (!el || !group) return;
   const row = (it) => `<tr>
       <td class="yr">${it.date ? escapeHtml(String(it.date).slice(0, 4)) : '—'}</td>
-      <td><a href="/album/${it.id}" class="album-link">${escapeHtml(it.title || '')}</a>${it.by ? `<div class="by">${escapeHtml(it.by)}</div>` : ''}</td>
+      <td><a href="/album/${it.id}" class="album-link">${escapeHtml(it.title || '')}</a>${it.type && it.type !== 'Album' ? ` <span class="rg-type">${escapeHtml(it.type)}</span>` : ''}${it.by ? `<div class="by">${escapeHtml(it.by)}</div>` : ''}</td>
       <td>${escapeHtml((it.roles || []).join(', '))}${(it.songs || []).length ? `<div class="songs">${it.songs.map((x) => escapeHtml(x)).join(' · ')}${it.songCount > it.songs.length ? ` +${it.songCount - it.songs.length} more` : ''}</div>` : ''}</td>
     </tr>`;
   const items = group.items || [];

@@ -50,3 +50,16 @@ test('builds rows from releases, recordings and works, deduplicated', () => {
   const wr = rows.find((r) => r.category === 'songwriter');
   assert.deepEqual([wr.rgId, wr.song, wr.source], ['rg-lad', 'Take It Away', 'work']);
 });
+
+test('album year is the earliest release seen for that release group', () => {
+  const reissue = { id: 'r2018', date: '2018-05-01', 'release-group': { id: 'rg-hc', title: 'Heartbeat City', 'primary-type': 'Album', 'secondary-types': [] }, 'artist-credit': [{ name: 'The Cars' }] };
+  const original = { id: 'r1984', date: '1984-03-13', 'release-group': { id: 'rg-hc', title: 'Heartbeat City', 'primary-type': 'Album', 'secondary-types': [] } };
+  const rows = buildRows({
+    relations: [{ 'target-type': 'release', type: 'producer', attributes: [], release: { id: 'r2018' } },
+                { 'target-type': 'recording', type: 'producer', attributes: [], recording: { id: 'rec', title: 'Drive' } }],
+    releasesById: new Map([['r2018', reissue]]),
+    recordingsById: new Map([['rec', { id: 'rec', title: 'Drive', releases: [reissue, original] }]]),
+    recordingsByWorkTitle: new Map(),
+  });
+  assert.ok(rows.every((r) => r.date === '1984-03-13'), JSON.stringify(rows));
+});
