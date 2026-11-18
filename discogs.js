@@ -47,24 +47,35 @@ function discogsFetch(url) {
   return result;
 }
 
+// Discogs adds " (2)" to tell same-named people apart, and "anv" is the name as
+// printed on this release. Show the printed name without the number.
+export function cleanDiscogsName(a) {
+  return String(a.anv || a.name || '').replace(/\s*\(\d+\)$/, '').trim();
+}
+
 // Best-guess match: search by "<artist> <title>", take the first release
-// result. Returns [] (never throws) on no match, no token issues, or any
-// network/API failure.
-export async function findDiscogsCredits(artist, title) {
+// result. Returns null (never throws) on no match or any failure.
+export async function findDiscogsRelease(artist, title) {
   try {
     const q = encodeURIComponent(`${artist} ${title}`);
     const searchUrl = `${DISCOGS_ROOT}/database/search?q=${q}&type=release&per_page=1&page=1`;
     const search = await discogsFetch(searchUrl);
     const hit = (search.results || [])[0];
-    if (!hit || !hit.id) return [];
-
-    const releaseUrl = `${DISCOGS_ROOT}/releases/${hit.id}`;
-    const release = await discogsFetch(releaseUrl);
-    return (release.extraartists || [])
-      .filter((a) => a.name && a.role)
-      .map((a) => ({ name: a.name, role: a.role, source: 'discogs' }));
+    if (!hit || !hit.id) return null;
+    return await discogsFetch(`${DISCOGS_ROOT}/releases/${hit.id}`);
   } catch (err) {
     console.error('Discogs lookup failed for', `${artist} - ${title}`, ':', err.message);
-    return [];
+    return null;
   }
+}
+
+// Album-level credit list from a Discogs release (everyone in its credits).
+export function discogsAlbumCredits(release) {
+  return ((release && release.extraartists) || [])
+    .filter((a) => a.name && a.role)
+    .map((a) => ({ name: cleanDiscogsName(a), role: a.role, source: 'discogs' }));
+}
+
+export async function findDiscogsCredits(artist, title) {
+  return discogsAlbumCredits(await findDiscogsRelease(artist, title));
 }

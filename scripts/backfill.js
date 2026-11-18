@@ -21,10 +21,11 @@ import {
   upsertAlbum,
   setAlbumCredits,
   markEnriched,
+  markSongCredits,
   stats,
 } from '../db.js';
 import { getAlbumDetail } from '../mb.js';
-import { findDiscogsCredits } from '../discogs.js';
+import { addDiscogsCredits } from '../trackCredits.js';
 
 const BATCH_SIZE = 50;
 
@@ -32,10 +33,11 @@ async function backfillOne(row) {
   try {
     const artistMbids = getAlbumArtistMbids(row.id);
     const detail = await getAlbumDetail(row.id);
+    const { albumCredits: discogsCredits } = await addDiscogsCredits(detail);
     upsertAlbum(detail, artistMbids);
-    const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
     if (discogsCredits.length) setAlbumCredits(row.id, discogsCredits);
     markEnriched(row.id);
+    markSongCredits(row.id);
     console.log(`  + ${row.title} (${row.views} views)${discogsCredits.length ? `, ${discogsCredits.length} Discogs credits` : ''}`);
   } catch (err) {
     // Best-effort: mark it done anyway so a permanently-broken/removed

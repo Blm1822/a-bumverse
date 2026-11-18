@@ -356,8 +356,17 @@ function fmtLength(ms) {
   return `${m}:${s}`;
 }
 
-function creditTags(list) {
+// Players and singers first, then producers, then engineers and mixers.
+function byCreditOrder(list) {
+  const rank = (r) => (/engineer|mix|master|record|edit|program/i.test(r || '') ? 2 : /produc/i.test(r || '') ? 1 : 0);
+  return [...(list || [])].sort((a, b) => rank(a.role) - rank(b.role));
+}
+
+function creditTags(list, limit = 0) {
   if (!list || !list.length) return '<span class="empty">—</span>';
+  if (limit && list.length > limit + 1) {
+    return `${creditTags(list.slice(0, limit))}<details class="more-credits"><summary>+${list.length - limit} more</summary>${creditTags(list.slice(limit))}</details>`;
+  }
   return list
     .map((c) => {
       const name = c.mbid
@@ -1700,7 +1709,7 @@ async function renderAlbum(id) {
           <td>${escapeHtml(t.title)}</td>
           <td>${fmtLength(t.length)}</td>
           <td>${creditTags(t.writers)}</td>
-          <td>${creditTags(t.performers)}</td>
+          <td>${creditTags(byCreditOrder(t.performers), 6)}</td>
         </tr>`
       )
       .join('');
@@ -1729,7 +1738,7 @@ async function renderAlbum(id) {
       <div class="table-scroll">
         <table class="tracks">
           <thead>
-            <tr><th>#</th><th>Title</th><th>Length</th><th>Writers</th><th>Performers</th></tr>
+            <tr><th>#</th><th>Title</th><th>Length</th><th>Writers</th><th>Musicians &amp; crew</th></tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
