@@ -231,7 +231,32 @@ export function personSummary(artist, groups = artist?.creditGroups || personCre
     if (first && !notable.includes(first.title)) notable.push(first.title);
   }
   for (const a of albums.values()) if (notable.length < 3 && !notable.includes(a.title)) notable.push(a.title);
-  return { roleLine, topRoles: nouns, topActs, nAlbums: (artist?.albums || []).length, nCredits: albums.size, notable, groups };
+  const actCounts = [...acts.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, albums: n }));
+  return { roleLine, topRoles: nouns, topActs, actCounts, nAlbums: (artist?.albums || []).length, nCredits: albums.size, notable, groups };
+}
+
+// IMDb "Known for": one defining album with each of their most frequent collaborators
+// (albums before singles, earliest first), topped up from the rest of their credits.
+export function knownFor(s, n = 4) {
+  const items = new Map();
+  for (const g of s.groups || []) for (const it of g.items) {
+    if (!items.has(it.id)) items.set(it.id, { ...it, category: g.label });
+  }
+  const all = [...items.values()];
+  const rank = (a, b) => (a.type === 'Album' ? 0 : 1) - (b.type === 'Album' ? 0 : 1)
+    || String(a.date || '9999').localeCompare(String(b.date || '9999'));
+  const out = [];
+  for (const act of s.topActs || []) {
+    const pick = all.filter((a) => a.by === act).sort(rank)[0];
+    if (pick && !out.includes(pick)) out.push(pick);
+    if (out.length === n) break;
+  }
+  for (const a of all.sort(rank)) {
+    if (out.length >= n) break;
+    if (!out.includes(a)) out.push(a);
+  }
+  return out.slice(0, n).map((a) => ({ id: a.id, title: a.title, date: a.date, by: a.by, type: a.type, category: a.category,
+    coverArtUrl: `https://coverartarchive.org/release-group/${a.id}/front-250` }));
 }
 
 const isGroup = (artist) => String(artist?.type || '').toLowerCase() === 'group';
@@ -271,8 +296,13 @@ export function personDescription(artist, s = personSummary(artist), max = 158) 
   return d;
 }
 
-export function personHtml(artist, s = personSummary(artist)) {
+export function personHtml(artist, s = personSummary(artist), extras = {}) {
   const yr = (a) => (a.date ? ` (${esc(String(a.date).slice(0, 4))})` : '');
+  const known = (extras.knownFor || [])
+    .map((a) => `<li><a href="/album/${esc(a.id)}">${esc(a.title)}</a>${a.by ? ` by ${esc(a.by)}` : ''}${yr(a)}</li>`).join('');
+  const link = (x) => (x.id ? `<a href="/artist/${esc(x.id)}">${esc(x.name)}</a>` : `<a href="/name/${encodeURIComponent(x.name)}">${esc(x.name)}</a>`);
+  const worked = (extras.workedWith || []).map((x) => `<li>${link(x)} (${x.albums} album${x.albums === 1 ? '' : 's'})</li>`).join('');
+  const collab = (extras.collaborators || []).map((x) => `<li>${link(x)} (${x.shared} albums together)</li>`).join('');
   const groups = (s.groups || []).map((g) => {
     const items = g.items.slice(0, 150).map((it) => {
       const extra = [it.roles.join(', '), it.songs.length ? `“${it.songs.slice(0, 3).join('”, “')}”${it.songCount > 3 ? ` +${it.songCount - 3}` : ''}` : '']
@@ -288,7 +318,10 @@ export function personHtml(artist, s = personSummary(artist)) {
   <h1>${esc(artist.name)}</h1>
   ${s.roleLine ? `<p>${esc(s.roleLine)}</p>` : ''}
   ${bio}
+  ${known ? `<h2>Known for</h2><ul>${known}</ul>` : ''}
   ${groups}
+  ${worked ? `<h2>Worked with</h2><ul>${worked}</ul>` : ''}
+  ${collab ? `<h2>Frequent collaborators</h2><ul>${collab}</ul>` : ''}
   ${albums ? `<h2>${isGroup(artist) ? 'Discography' : 'Albums'}</h2><ul>${albums}</ul>` : ''}
 </article>`;
 }

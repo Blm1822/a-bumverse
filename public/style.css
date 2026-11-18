@@ -874,3 +874,23 @@ table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-t
 .person-credits .by, .person-credits .songs { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .name-link { color: inherit; text-decoration: underline dotted var(--border); text-underline-offset: 3px; }
 .person-credits .rg-type { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+
+/* People in search */
+.suggest-thumb.round { border-radius: 50%; }
+.suggest-thumb.initial { display: flex; align-items: center; justify-content: center; background: var(--surface); color: var(--accent); font-weight: 700; }
+.people-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 8px 0 24px; }
+.person-chip { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; color: var(--text); text-decoration: none; }
+.person-chip:hover { border-color: var(--accent); }
+.person-chip img, .person-chip .initial { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; display: flex; align-items: center; justify-content: center; background: var(--panel); color: var(--accent); font-weight: 700; }
+.person-chip strong { display: block; font-size: 14px; } .person-chip small { color: var(--muted); font-size: 12px; }
+
+/* Person page: Known for + collaborators */
+.known-for { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin: 8px 0 20px; }
+.known-card { color: var(--text); text-decoration: none; display: flex; flex-direction: column; gap: 2px; }
+.known-card img, .known-card .cover-fallback { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; justify-content: center; color: var(--muted); margin-bottom: 4px; }
+.known-card strong { font-size: 14px; } .known-card small { color: var(--muted); font-size: 12px; } .known-card .cat { color: var(--accent); }
+.known-card:hover strong { color: var(--accent); }
+.chip-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 20px; }
+.collab-chip { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; color: var(--text); text-decoration: none; font-size: 14px; }
+.collab-chip span { color: var(--muted); font-size: 12px; margin-left: 4px; }
+.collab-chip:hover { border-color: var(--accent); }

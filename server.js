@@ -5,8 +5,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName } from './db.js';
-import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups } from './credits.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames } from './db.js';
+import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups, knownFor } from './credits.js';
 import { searchReleaseGroups, getAlbumDetail, searchArtist } from './mb.js';
 import { prioritizePerson, startPersonEnricher } from './personCredits.js';
 import { findDiscogsCredits } from './discogs.js';
@@ -368,16 +368,18 @@ app.get('/api/user/:username/reviews', (req, res) => {
 // lookup's multi-second retry path.
 app.get('/api/suggest', (req, res) => {
   const q = (req.query.q || '').trim();
-  if (!q) return res.json({ results: [] });
-  res.json({ results: searchLocal(q, 8) });
+  if (!q) return res.json({ results: [], people: [] });
+  res.json({ results: searchLocal(q, 8), people: searchPeople(q, 3) });
 });
 
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
-  if (!q) return res.json({ results: [], total: 0 });
+  if (!q) return res.json({ results: [], total: 0, people: [] });
 
   const local = searchLocal(q, 24, offset);
+  // People first on the first page: most searches on a credits site are names.
+  const people = offset === 0 ? searchPeople(q, 8) : [];
 
   // Only the true first page ever merges in a live MusicBrainz search, and
   // only when local results are thin - MusicBrainz's own result set doesn't
@@ -395,14 +397,14 @@ app.get('/api/search', async (req, res) => {
           merged.push({ ...r, inDb: false });
         }
       }
-      return res.json({ results: merged, total: merged.length });
+      return res.json({ results: merged, total: merged.length, people });
     } catch (err) {
       console.error('live search failed', err.message);
       // MusicBrainz hiccup shouldn't break search entirely - fall back to what we have locally.
     }
   }
 
-  res.json({ results: local, total: countSearchLocal(q) });
+  res.json({ results: local, total: countSearchLocal(q), people });
 });
 
 function withCreditSummary(album) {
@@ -909,6 +911,15 @@ function withPersonCredits(artist) {
   if (!fetched && artist.type !== 'Group') prioritizePerson(artist.id);
   artist.creditGroups = personCreditGroups(artist, getPersonCredits(artist.id));
   artist.creditsComplete = !!fetched;
+  if (artist.type !== 'Group') {
+    const s = personSummary(artist);
+    artist.knownFor = knownFor(s, 4);
+    const acts = s.actCounts.slice(0, 8);
+    const ids = artistIdsByExactNames(acts.map((a) => a.name));
+    artist.workedWith = acts.map((a) => ({ ...a, id: ids[a.name] || null }));
+    const albumIds = artist.creditGroups.flatMap((g) => g.items.map((i) => i.id));
+    artist.collaborators = collaboratorsFor(artist.id, albumIds, 10);
+  }
   return artist;
 }
 
@@ -948,7 +959,7 @@ app.get('/artist/:mbid', (req, res) => {
     jsonLd: [artistJsonLd(req, artist), breadcrumbJsonLd(req, [{ name: artist.name, path: `/artist/${artist.id}` }])],
     ogType: 'profile',
     fullTitle: personTitle(artist, summary),
-    bodyHtml: personHtml(artist, summary),
+    bodyHtml: personHtml(artist, summary, artist),
   }));
 });
 
@@ -1121,31 +1132,38 @@ app.get('/search', (req, res) => {
   }));
 });
 
+// Sitemap index + chunks: Google reads at most 50,000 URLs per sitemap file, and the
+// catalog (artists + albums) can pass that. /sitemap.xml lists the chunk files.
+const SITEMAP_CHUNK = 40000;
+function sitemapUrlEntries(base) {
+  // Every browse/category page plus every artist and album. Category pages catch timely
+  // searches (In Memoriam right after a death) and evergreen decade/genre queries.
+  const staticPages = ['/', '/trending', '/top-rated', '/on-this-day', '/in-memoriam', '/artists', '/recent'];
+  const out = staticPages.map((p) => ({ loc: `${base}${p}` }));
+  for (const { decade } of decadeCounts()) out.push({ loc: `${base}/decade/${decade}` });
+  for (const { genre } of genreCounts(100)) out.push({ loc: `${base}/genre?name=${encodeURIComponent(genre)}` });
+  // people whose full career was just filled in carry a lastmod, so Google re-reads them
+  for (const a of sitemapArtists()) out.push({ loc: `${base}/artist/${a.id}`, lastmod: a.lastmod || null });
+  for (const al of sitemapAlbums()) out.push({ loc: `${base}/album/${al.id}`, lastmod: al.lastmod || null });
+  return out;
+}
+const xmlEsc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
 app.get('/sitemap.xml', (req, res) => {
   const base = `${req.protocol}://${req.get('host')}`;
-  // Every browse/category page was previously missing from here entirely -
-  // only the homepage plus every individual artist/album made it in. That
-  // silently left out exactly the pages most likely to catch fresh, timely
-  // search traffic (In Memoriam for "did [musician] die"-style queries right
-  // after a death - the Duncan Sheik/Manuel Seal pattern this project keeps
-  // running into - plus evergreen decade/genre category queries).
-  const staticPages = ['/trending', '/top-rated', '/on-this-day', '/in-memoriam', '/artists', '/recent'];
-  const urls = [`<url><loc>${base}/</loc></url>`];
-  for (const p of staticPages) urls.push(`<url><loc>${base}${p}</loc></url>`);
-  for (const { decade } of decadeCounts()) {
-    urls.push(`<url><loc>${base}/decade/${decade}</loc></url>`);
-  }
-  for (const { genre } of genreCounts(100)) {
-    urls.push(`<url><loc>${base}/genre?name=${encodeURIComponent(genre)}</loc></url>`);
-  }
-  for (const a of sitemapArtists()) {
-    urls.push(`<url><loc>${base}/artist/${a.id}</loc></url>`);
-  }
-  for (const al of sitemapAlbums()) {
-    urls.push(`<url><loc>${base}/album/${al.id}</loc><lastmod>${al.lastmod}</lastmod></url>`);
-  }
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  ${urls.join('\n  ')}\n</urlset>`;
-  res.type('application/xml').send(xml);
+  const n = Math.max(1, Math.ceil(sitemapUrlEntries(base).length / SITEMAP_CHUNK));
+  const items = Array.from({ length: n }, (_, i) => `<sitemap><loc>${base}/sitemaps/${i + 1}.xml</loc></sitemap>`);
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  ${items.join('\n  ')}\n</sitemapindex>`);
+});
+
+app.get('/sitemaps/:n.xml', (req, res) => {
+  const base = `${req.protocol}://${req.get('host')}`;
+  const i = parseInt(req.params.n, 10) - 1;
+  const all = sitemapUrlEntries(base);
+  const chunk = all.slice(i * SITEMAP_CHUNK, (i + 1) * SITEMAP_CHUNK);
+  if (!Number.isInteger(i) || i < 0 || !chunk.length) return res.status(404).type('text/plain').send('not found');
+  const urls = chunk.map((u) => `<url><loc>${xmlEsc(u.loc)}</loc>${u.lastmod ? `<lastmod>${xmlEsc(u.lastmod)}</lastmod>` : ''}</url>`);
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  ${urls.join('\n  ')}\n</urlset>`);
 });
 
 // Fixed-length digest comparison so a wrong guess can't be timed byte-by-byte

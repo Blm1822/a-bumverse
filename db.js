@@ -922,7 +922,70 @@ export function sitemapAlbums() {
 }
 
 export function sitemapArtists() {
-  return db.prepare('SELECT mbid as id FROM artists').all();
+  // lastmod = when the person's full career was filled in, so Google re-reads those pages
+  return db.prepare("SELECT mbid as id, substr(credits_fetched_at, 1, 10) as lastmod FROM artists").all();
+}
+
+// ---- people search ----
+// Exact name first, then names starting with the query, then anywhere in the name; within
+// each, people with the most credits first (a credits site's searches are mostly people).
+export function searchPeople(query, limit = 6) {
+  // quotes ignored on both sides: MusicBrainz writes 'Robert John “Mutt” Lange'
+  const q = String(query || '').replace(/["“”'‘’]/g, '').replace(/\s+/g, ' ').trim();
+  if (q.length < 2) return [];
+  const bare = `replace(replace(replace(replace(replace(replace(a.name, '“', ''), '”', ''), '"', ''), char(39), ''), '‘', ''), '’', '')`;
+  return db.prepare(
+    `WITH hits AS (
+       SELECT a.mbid, a.name, a.disambiguation, a.type, a.wiki_image_url AS imageUrl,
+              CASE WHEN ${bare} = ? COLLATE NOCASE THEN 0 WHEN ${bare} LIKE ? COLLATE NOCASE THEN 1 ELSE 2 END AS rank
+       FROM artists a WHERE ${bare} LIKE ? COLLATE NOCASE
+       LIMIT 200
+     )
+     SELECT h.mbid AS id, h.name, h.disambiguation, h.type, h.imageUrl,
+            (SELECT COUNT(DISTINCT rg_mbid) FROM person_credits pc WHERE pc.artist_mbid = h.mbid) AS credits,
+            (SELECT category FROM person_credits pc WHERE pc.artist_mbid = h.mbid
+               GROUP BY category ORDER BY COUNT(DISTINCT rg_mbid) DESC LIMIT 1) AS topCategory,
+            (SELECT COUNT(*) FROM album_artists aa WHERE aa.artist_mbid = h.mbid) AS albums
+     FROM hits h
+     ORDER BY (h.rank = 0) DESC, (credits + albums > 0) DESC, credits DESC, h.rank, albums DESC, length(h.name)
+     LIMIT ?`
+  ).all(q, `${q}%`, `%${q}%`, limit);
+}
+
+// People credited on the same albums: from track credits (albums on the site) and from
+// other people's filled-in careers. Returns [{ id, name, shared }].
+export function collaboratorsFor(mbid, albumIds, limit = 10) {
+  const ids = [...new Set(albumIds)].slice(0, 400);
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  const fromTracks = db.prepare(
+    `SELECT tc.artist_mbid AS id, MAX(tc.name) AS name, COUNT(DISTINCT t.album_mbid) AS shared
+     FROM track_credits tc JOIN tracks t ON t.id = tc.track_id
+     WHERE t.album_mbid IN (${ph}) AND tc.artist_mbid IS NOT NULL AND tc.artist_mbid != ?
+     GROUP BY tc.artist_mbid`
+  ).all(...ids, mbid);
+  const fromCareers = db.prepare(
+    `SELECT pc.artist_mbid AS id, a.name, COUNT(DISTINCT pc.rg_mbid) AS shared
+     FROM person_credits pc JOIN artists a ON a.mbid = pc.artist_mbid
+     WHERE pc.rg_mbid IN (${ph}) AND pc.artist_mbid != ?
+     GROUP BY pc.artist_mbid`
+  ).all(...ids, mbid);
+  const merged = new Map();
+  for (const r of [...fromTracks, ...fromCareers]) {
+    const cur = merged.get(r.id);
+    if (!cur || r.shared > cur.shared) merged.set(r.id, r);
+  }
+  return [...merged.values()].filter((r) => r.shared >= 2).sort((a, b) => b.shared - a.shared || a.name.localeCompare(b.name)).slice(0, limit);
+}
+
+export function artistIdsByExactNames(names) {
+  const out = {};
+  const stmt = db.prepare('SELECT mbid FROM artists WHERE name = ? COLLATE NOCASE LIMIT 2');
+  for (const n of names) {
+    const rows = stmt.all(n);
+    if (rows.length === 1) out[n] = rows[0].mbid;
+  }
+  return out;
 }
 
 export function logPageView({ path: p, query, referrer, userAgent }) {
