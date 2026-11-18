@@ -761,7 +761,9 @@ export function searchLocal(query, limit = 24, offset = 0) {
     .slice(offset, offset + limit)
     .map(({ views, artistAlbums, ...a }) => ({
       ...a,
-      known: (a.releaseCount || 0) >= 5 || (artistAlbums || 0) >= 5 || (views || 0) >= 10,
+      // An artist with many albums isn't enough (Eddie & the Hot Rods also made a
+      // "Thriller"); the record itself must have many releases or real visits.
+      known: (a.releaseCount || 0) >= 10 || (views || 0) >= 25,
     }));
 }
 

@@ -64,3 +64,10 @@ test('an exact title by an unknown act is not a strong match', () => {
   assert.equal(hasStrongMatch('Hotel California', [covers, eagles]), true);
   assert.equal(rankAlbums('hotel california', [covers, eagles])[0].id, 'e');
 });
+
+test('an exact title by a prolific artist is still not the famous album', () => {
+  const hotRods = { id: 'h', title: 'Thriller', artist: 'Eddie & the Hot Rods', releaseCount: 2, artistAlbums: 15, known: false };
+  assert.equal(hasStrongMatch('Thriller', [hotRods]), false);
+  const mj = { id: 'mj', title: 'Thriller', artist: 'Michael Jackson', releaseCount: 120 };
+  assert.equal(rankAlbums('thriller', [hotRods, mj])[0].id, 'mj');
+});
