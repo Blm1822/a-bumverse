@@ -18,14 +18,13 @@
 <body>
   <header class="top">
     <a class="logo-link" id="home-link" href="/"><span class="logo">Album<em>verse</em></span></a>
-    <nav class="top-nav">
-      <a href="/artists" id="nav-artists">Artists</a>
-      <a href="/recent" id="nav-recent">Recently added</a>
-      <a href="/trending" id="nav-trending">Trending</a>
-      <a href="/top-rated" id="nav-top-rated">Top rated</a>
-      <a href="/on-this-day" id="nav-on-this-day">On this day</a>
-      <a href="/in-memoriam" id="nav-in-memoriam">In Memoriam</a>
-      <a href="/random">Random album</a>
+    <nav class="top-nav" aria-label="Main">
+      <a href="/people" data-spa id="nav-people">People</a>
+      <a href="/people?role=producer" data-spa id="nav-producers">Producers</a>
+      <a href="/people?role=songwriter" data-spa id="nav-songwriters">Songwriters</a>
+      <a href="/people?role=performer" data-spa id="nav-musicians">Musicians</a>
+      <a href="/recent" data-spa id="nav-albums">Albums</a>
+      <a href="/on-this-day" data-spa id="nav-otd-top">On this day</a>
     </nav>
     <form id="search-form" autocomplete="off">
       <div class="search-input-wrap">
@@ -46,54 +45,55 @@
 
   <main id="app">
     <div id="home-view">
-      <section class="hero hidden" id="hero"></section>
-
-      <p class="hint">The music database. Search an album, or browse by artist.</p>
-      <p class="stats" id="stats"></p>
-
-      <section class="rail-section hidden" id="trending-section">
-        <h2 class="section-title">Trending searches</h2>
-        <div class="trend-wrap" id="trending-rail"></div>
+      <section class="home-hero">
+        <p class="eyebrow">Music credits</p>
+        <h1>Who played on that record?</h1>
+        <p class="lede" id="home-lede">The producers, songwriters and session players behind the albums. Every credit, every person.</p>
+        <form class="home-search" id="home-search" role="search">
+          <label for="home-q" class="visually-hidden">Search a person or an album</label>
+          <input id="home-q" type="search" placeholder="Search a person or an album, e.g. Mutt Lange or Rumours" autocomplete="off" />
+          <button type="submit">Search</button>
+        </form>
+        <div class="home-chips hidden" id="home-chips"></div>
       </section>
-
-      <section class="rail-section hidden" id="on-this-day-section">
-        <h2 class="section-title" id="on-this-day-title">On this day</h2>
-        <div class="rail" id="on-this-day-rail"></div>
-      </section>
-
-      <section class="browse-selects hidden" id="browse-select-section">
-        <div class="browse-select-group hidden" id="decades-section">
-          <h2 class="section-title">Browse by decade</h2>
-          <div class="browse-tiles" id="decades-tiles"></div>
+      <section class="spotlight hidden" id="spotlight" aria-labelledby="spotlight-name"></section>
+      <div class="home-cols">
+        <div class="home-main">
+          <section class="hidden" id="stories-section" aria-label="Credits stories"><div class="stories" id="stories"></div></section>
+          <section aria-labelledby="roles-title">
+            <h2 class="section-title" id="roles-title">Browse by role</h2>
+            <div class="role-cards">
+              <a class="role-card" href="/people?role=producer" data-spa><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><strong>Producers</strong><span>The people behind the sound: who produced what, and with whom.</span></a>
+              <a class="role-card" href="/people?role=songwriter" data-spa><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg><strong>Songwriters</strong><span>The writers behind the hits, and every album their songs landed on.</span></a>
+              <a class="role-card" href="/people?role=performer" data-spa><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><strong>Session musicians</strong><span>Guitar, drums, keys, vocals: who actually played on the record.</span></a>
+              <a class="role-card" href="/people?role=engineering" data-spa><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><strong>Engineers &amp; mixers</strong><span>Recording, mixing and mastering credits.</span></a>
+            </div>
+          </section>
+          <section class="browse-selects hidden" id="browse-select-section">
+            <div class="browse-select-group hidden" id="decades-section">
+              <h2 class="section-title">Albums by decade</h2>
+              <div class="browse-tiles" id="decades-tiles"></div>
+            </div>
+            <div class="browse-select-group hidden" id="genres-section">
+              <h2 class="section-title">Albums by genre</h2>
+              <div class="browse-tiles" id="genres-tiles"></div>
+            </div>
+          </section>
         </div>
-        <div class="browse-select-group hidden" id="genres-section">
-          <h2 class="section-title">Browse by genre</h2>
-          <div class="browse-tiles" id="genres-tiles"></div>
-        </div>
-      </section>
-
-      <section class="rail-section">
-        <h2 class="section-title">Browse artists</h2>
-        <div class="rail" id="artists-grid"></div>
-      </section>
-
-      <section class="rail-section">
-        <h2 class="section-title">Recently added</h2>
-        <div class="rail" id="recent-grid"></div>
-      </section>
-
-      <section class="hidden" id="recent-reviews-section">
-        <h2 class="section-title">Recent reviews</h2>
-        <div class="chart-list" id="recent-reviews-list"></div>
-      </section>
-
-      <section class="rail-section hidden" id="in-memoriam-section">
-        <h2 class="section-title">In Memoriam</h2>
-        <p class="hint">Musicians who have passed away.</p>
-        <div class="rail" id="in-memoriam-rail"></div>
-      </section>
+        <aside class="home-side">
+          <section class="side-box hidden" id="looked-section" aria-labelledby="looked-title">
+            <h2 id="looked-title">Most looked-up people</h2>
+            <p class="side-sub">This week on Albumverse</p>
+            <ol class="looked" id="looked-list"></ol>
+          </section>
+          <section class="side-box hidden" id="otd-section" aria-labelledby="otd-title">
+            <h2 id="otd-title">Released on this day</h2>
+            <div class="otd-list" id="otd-list"></div>
+            <a class="side-more" href="/on-this-day" data-spa>More from this day</a>
+          </section>
+        </aside>
+      </div>
     </div>
-
     <div id="results" class="hidden"></div>
     <div id="decade" class="hidden"></div>
     <div id="genre" class="hidden"></div>
@@ -105,12 +105,25 @@
     <div id="in-memoriam-page" class="hidden"></div>
     <div id="poster-page" class="hidden"></div>
     <div id="my-albums-page" class="hidden"></div>
+    <div id="people-page" class="hidden"></div>
     <div id="artist" class="hidden"></div>
     <div id="album" class="hidden"></div>
     <div id="profile-page" class="hidden"></div>
   </main>
 
-  <footer class="site-footer"><a href="/privacy">Privacy</a> · Credits data from MusicBrainz, Discogs &amp; Wikipedia</footer>
+  <footer class="site-footer">
+    <nav aria-label="More" class="footer-nav">
+      <a href="/artists" id="nav-artists">Artists</a>
+      <a href="/recent" id="nav-recent">Recently added</a>
+      <a href="/trending" id="nav-trending">Trending</a>
+      <a href="/top-rated" id="nav-top-rated">Top rated</a>
+      <a href="/on-this-day" id="nav-on-this-day">On this day</a>
+      <a href="/in-memoriam" id="nav-in-memoriam">In Memoriam</a>
+      <a href="/random">Random album</a>
+      <a href="/privacy">Privacy</a>
+    </nav>
+    <p>Credits data from MusicBrainz, Discogs &amp; Wikipedia</p>
+  </footer>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -13,6 +13,7 @@ const onThisDayPageEl = document.getElementById('on-this-day-page');
 const inMemoriamPageEl = document.getElementById('in-memoriam-page');
 const posterPageEl = document.getElementById('poster-page');
 const myAlbumsPageEl = document.getElementById('my-albums-page');
+const peoplePageEl = document.getElementById('people-page');
 const navArtists = document.getElementById('nav-artists');
 const navRecent = document.getElementById('nav-recent');
 const navTrending = document.getElementById('nav-trending');
@@ -441,7 +442,7 @@ function setTitle(t) {
 }
 
 function allViews() {
-  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, inMemoriamPageEl, posterPageEl, myAlbumsPageEl, profilePageEl];
+  return [homeView, resultsEl, artistEl, albumEl, decadeEl, genreEl, artistsPageEl, recentPageEl, trendingPageEl, topRatedPageEl, onThisDayPageEl, inMemoriamPageEl, posterPageEl, myAlbumsPageEl, profilePageEl, peoplePageEl];
 }
 
 function showOnly(el) {
@@ -464,6 +465,13 @@ function route() {
   navTopRated.classList.toggle('active', parts[0] === 'top-rated');
   navOnThisDay.classList.toggle('active', parts[0] === 'on-this-day');
   navInMemoriam.classList.toggle('active', parts[0] === 'in-memoriam');
+  document.body.classList.toggle('is-home', !parts.length && !location.search);
+  const role = new URLSearchParams(location.search).get('role');
+  for (const [id, on] of [['nav-people', parts[0] === 'people' && !role], ['nav-producers', role === 'producer'],
+    ['nav-songwriters', role === 'songwriter'], ['nav-musicians', role === 'performer'],
+    ['nav-albums', parts[0] === 'recent'], ['nav-otd-top', parts[0] === 'on-this-day']]) {
+    document.getElementById(id)?.classList.toggle('active', on);
+  }
   if (parts[0] === 'album' && parts[1]) return renderAlbum(parts[1]);
   if (parts[0] === 'artist' && parts[1]) return renderArtist(parts[1]);
   if (parts[0] === 'user' && parts[1]) return renderProfilePage(parts[1]);
@@ -480,6 +488,7 @@ function route() {
   if (parts[0] === 'in-memoriam' && !parts[1]) return renderInMemoriamPage();
   if (parts[0] === 'poster' && !parts[1]) return renderPosterPage(new URLSearchParams(location.search).get('artist'));
   if (parts[0] === 'my-albums' && !parts[1]) return renderMyAlbumsPage();
+  if (parts[0] === 'people' && !parts[1]) return renderPeoplePage(new URLSearchParams(location.search).get('role'));
   const q = new URLSearchParams(location.search).get('q');
   if (q) {
     input.value = q;
@@ -1366,23 +1375,98 @@ function renderHome() {
   input.value = '';
   setTitle(null);
   showOnly(homeView);
-  loadStats();
-  loadHero();
-  loadTrending();
-  loadOnThisDay();
+  loadHome();
   loadDecades();
   loadGenres();
-  renderHomeRails();
-  loadRecentReviews();
-  loadInMemoriam();
-  if (!homeTimer) {
-    homeTimer = setInterval(() => {
-      if (homeView.classList.contains('hidden')) return;
-      renderHomeRails();
-      loadTrending();
-      loadRecentReviews();
-    }, 10000);
+}
+
+// New homepage (server: home.js /api/home): chips, spotlight, stories, most looked-up, on this day.
+async function loadHome() {
+  let d;
+  try {
+    const res = await fetch('/api/home');
+    d = await res.json();
+    if (d.error) throw new Error(d.error);
+  } catch {
+    return;
   }
+  if (d.albumCount) {
+    document.getElementById('home-lede').textContent =
+      `The producers, songwriters and session players behind ${Number(d.albumCount).toLocaleString()} album${d.albumCount === 1 ? '' : 's'}. Every credit, every person.`;
+  }
+  const chips = document.getElementById('home-chips');
+  if ((d.chips || []).length) {
+    chips.innerHTML = '<span>People are looking up:</span>' + d.chips.map((p) => `<a href="/artist/${p.id}" data-spa>${escapeHtml(p.name)}</a>`).join('');
+    chips.classList.remove('hidden');
+  }
+  const spot = document.getElementById('spotlight');
+  const sp = d.spotlight;
+  if (sp) {
+    spot.innerHTML = `
+      <div class="spot-text">
+        <p class="eyebrow">${escapeHtml(sp.label)}</p>
+        <h2 id="spotlight-name">${escapeHtml(sp.name)}</h2>
+        ${sp.roleLine ? `<p class="spot-role">${escapeHtml(sp.roleLine)}</p>` : ''}
+        <div class="spot-stats">${sp.stats.map((x) => `<div><strong>${Number(x.value).toLocaleString()}</strong><span>${escapeHtml(x.label)}</span></div>`).join('')}</div>
+        <a class="spot-cta" href="/artist/${sp.id}" data-spa>See all ${Number(sp.stats[0].value).toLocaleString()} credits</a>
+      </div>
+      <div class="spot-covers">${(sp.knownFor || []).map((a) => `<a href="/album/${a.id}" data-spa class="known-card">
+        <img src="${escapeHtml(a.coverArtUrl)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'cover-fallback', textContent: '♪'}))" />
+        <strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.by || '')}${a.date ? ` · ${escapeHtml(String(a.date).slice(0, 4))}` : ''}</small></a>`).join('')}</div>`;
+    spot.classList.remove('hidden');
+  }
+  const stories = d.stories || [];
+  if (stories.length) {
+    document.getElementById('stories').innerHTML = stories.map((st) => `<article class="story">
+      <p class="eyebrow">${escapeHtml(st.kind)}</p>
+      <h2>${escapeHtml(st.title)}</h2>
+      ${st.text ? `<p>${escapeHtml(st.text)}</p>` : ''}
+      <a href="${st.href}" data-spa>${escapeHtml(st.cta)}</a></article>`).join('');
+    document.getElementById('stories-section').classList.remove('hidden');
+  }
+  if ((d.mostLooked || []).length) {
+    document.getElementById('looked-list').innerHTML = d.mostLooked.map((p, i) => `<li><span class="rank">${i + 1}</span>
+      <a href="/artist/${p.id}" data-spa><strong>${escapeHtml(p.name)}</strong>${p.roleLine ? `<span>${escapeHtml(p.roleLine)}</span>` : ''}</a></li>`).join('');
+    document.getElementById('looked-section').classList.remove('hidden');
+  }
+  if ((d.onThisDay || []).length) {
+    document.getElementById('otd-list').innerHTML = d.onThisDay.map((a) => `<a class="otd-item" href="/album/${a.id}" data-spa>
+      ${a.coverArtUrl ? `<img src="${escapeHtml(a.coverArtUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : '<div class="otd-ph"></div>'}
+      <span><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.artist || '')}${a.date ? ` · ${escapeHtml(String(a.date).slice(0, 4))}` : ''}</small></span></a>`).join('');
+    document.getElementById('otd-section').classList.remove('hidden');
+  }
+}
+
+// People pages: everyone with filled-in credits, or one role, ranked by albums credited.
+const PEOPLE_TITLES = { producer: 'Producers', songwriter: 'Songwriters', performer: 'Session musicians', engineering: 'Engineers & mixers', arrangement: 'Arrangers' };
+async function renderPeoplePage(role) {
+  showOnly(peoplePageEl);
+  const title = PEOPLE_TITLES[role] || 'People';
+  setTitle(title);
+  peoplePageEl.innerHTML = `
+    <h2 class="section-title">${escapeHtml(title)}</h2>
+    <div class="credit-tabs" role="navigation" aria-label="Roles">${[['', 'Everyone'], ['producer', 'Producers'], ['songwriter', 'Songwriters'], ['performer', 'Musicians'], ['engineering', 'Engineers'], ['arrangement', 'Arrangers']]
+      .map(([r, l]) => `<a class="credit-tab${(role || '') === r ? ' on' : ''}" href="/people${r ? `?role=${r}` : ''}" data-spa>${l}</a>`).join('')}</div>
+    <p class="page-count" id="people-count">Loading…</p>
+    <div class="people-row" id="people-grid"></div>
+    <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="people-more">Load more</button></div>`;
+  const grid = document.getElementById('people-grid');
+  const more = document.getElementById('people-more');
+  let offset = 0;
+  const load = async () => {
+    const res = await fetch(`/api/people?offset=${offset}${role ? `&role=${encodeURIComponent(role)}` : ''}`);
+    const data = await res.json();
+    grid.insertAdjacentHTML('beforeend', (data.results || []).map((p) => `<a class="person-chip" href="/artist/${p.id}" data-spa>
+      ${p.imageUrl ? `<img src="${escapeHtml(p.imageUrl)}" alt="" onerror="this.remove()" />` : `<span class="initial">${escapeHtml((p.name || '?')[0])}</span>`}
+      <span><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(personMeta(p))}</small></span></a>`).join(''));
+    offset += (data.results || []).length;
+    document.getElementById('people-count').textContent = data.total
+      ? `${Number(data.total).toLocaleString()} ${data.total === 1 ? 'person' : 'people'}, most credited first`
+      : 'Full careers are still being added. Check back soon.';
+    more.parentElement.classList.toggle('hidden', offset >= (data.total || 0));
+  };
+  more.addEventListener('click', load);
+  try { await load(); } catch { document.getElementById('people-count').textContent = 'Could not load people.'; }
 }
 
 async function renderSearch(query) {
@@ -2241,6 +2325,21 @@ document.addEventListener('click', (e) => {
     track('outbound', `${host}: ${a.textContent.trim()}`.slice(0, 120));
   }
 }, true);
+
+// Links marked data-spa (new nav, homepage, people pages) navigate in-app.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-spa]');
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+  e.preventDefault();
+  navigate(a.getAttribute('href'));
+});
+document.getElementById('home-search')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = document.getElementById('home-q').value.trim();
+  if (!q) return;
+  track('search', q.slice(0, 100));
+  navigate(`/search?q=${encodeURIComponent(q)}`);
+});
 
 // The server puts the album's credits in the HTML for search engines; the app renders the same thing.
 document.getElementById('ssr-content')?.remove();
