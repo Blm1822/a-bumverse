@@ -56,3 +56,11 @@ test('local search: all words, title+artist, ranked', () => {
   assert.equal(db.countSearchLocal('beach boys'), 2);
   assert.ok(!('views' in db.searchLocal('pet sounds')[0]));
 });
+
+test('an exact title by an unknown act is not a strong match', () => {
+  const covers = { id: 'c', title: 'Hotel California', artist: 'Jam on the Mutha', releaseCount: 1, known: false };
+  assert.equal(hasStrongMatch('Hotel California', [covers]), false);
+  const eagles = { id: 'e', title: 'Hotel California', artist: 'Eagles', releaseCount: 25 };
+  assert.equal(hasStrongMatch('Hotel California', [covers, eagles]), true);
+  assert.equal(rankAlbums('hotel california', [covers, eagles])[0].id, 'e');
+});

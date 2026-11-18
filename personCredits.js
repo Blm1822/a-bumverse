@@ -10,6 +10,7 @@
 // Releases and recordings are batched (~40 ids per search); songs are one request each
 // (capped at 150), so a prolific songwriter takes a few minutes in the background.
 
+import { runInBackground } from './lanes.js';
 import { mbFetch } from './mb.js';
 
 const MB_ROOT = 'https://musicbrainz.org/ws/2';
@@ -242,8 +243,10 @@ export function startPersonEnricher({ everyMs = 15000, startAfterMs = 60000 } = 
     console.log('person credits enricher off (PERSON_ENRICH=off)');
     return;
   }
+  // Background lane: visitors' MusicBrainz/Discogs requests go ahead of these.
+  const bgTick = () => runInBackground(tick);
   setTimeout(() => {
-    tick();
-    setInterval(tick, everyMs).unref();
+    bgTick();
+    setInterval(bgTick, everyMs).unref();
   }, startAfterMs).unref();
 }
