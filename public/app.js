@@ -1393,24 +1393,39 @@ async function renderSearch(query) {
   try {
     const res = await fetch(searchUrl);
     const data = await res.json();
+    const people = data.people || [];
+    const peopleHtml = people.length ? `
+      <h2 class="section-title">People</h2>
+      <div class="people-row">${people.map((p) => `<a class="person-chip" href="/artist/${p.id}" data-id="${p.id}">
+        ${p.imageUrl ? `<img src="${escapeHtml(p.imageUrl)}" alt="" onerror="this.remove()" />` : `<span class="initial">${escapeHtml((p.name || '?')[0])}</span>`}
+        <span><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(personMeta(p))}</small></span></a>`).join('')}</div>` : '';
+    const wirePeople = () => {
+      for (const a of resultsEl.querySelectorAll('.person-chip')) {
+        a.addEventListener('click', (e) => { e.preventDefault(); navigate(a.getAttribute('href')); });
+      }
+    };
     if (!data.results || !data.results.length) {
       resultsEl.innerHTML = `
         <button class="back-btn" id="search-back-btn">&larr; Back</button>
-        <h2 class="section-title">Search results</h2>
+        ${peopleHtml}
+        <h2 class="section-title">Albums</h2>
         <p class="empty">No albums found for &ldquo;${escapeHtml(query)}&rdquo;.</p>
       `;
+      wirePeople();
       document.getElementById('search-back-btn').addEventListener('click', () => history.back());
       return;
     }
     const total = data.total || data.results.length;
     resultsEl.innerHTML = `
       <button class="back-btn" id="search-back-btn">&larr; Back</button>
-      <h2 class="section-title">Search results for &ldquo;${escapeHtml(query)}&rdquo;</h2>
+      ${peopleHtml}
+      <h2 class="section-title">Albums matching &ldquo;${escapeHtml(query)}&rdquo;</h2>
       <p class="page-count">${total.toLocaleString()} album${total === 1 ? '' : 's'} found</p>
       <div class="grid" id="search-grid"></div>
       <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="search-load-more">Load more</button></div>
     `;
     document.getElementById('search-back-btn').addEventListener('click', () => history.back());
+    wirePeople();
     const grid = document.getElementById('search-grid');
     for (const r of data.results) grid.appendChild(albumCard(r));
 
@@ -1457,6 +1472,14 @@ async function renderArtist(id) {
           ${shareLinksHtml(`${data.name} — on Albumverse`)}
         </div>
       </div>
+      ${(data.knownFor || []).length >= 2 ? `
+        <h2 class="section-title">Known for</h2>
+        <div class="known-for">${data.knownFor.map((a) => `<a class="known-card" href="/album/${a.id}">
+          <img src="${escapeHtml(a.coverArtUrl)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'cover-fallback', textContent: (this.alt || '♪')}))" />
+          <strong>${escapeHtml(a.title)}</strong>
+          <small>${escapeHtml(a.by || '')}${a.date ? ` · ${escapeHtml(String(a.date).slice(0, 4))}` : ''}</small>
+          <small class="cat">${escapeHtml(a.category || '')}</small></a>`).join('')}</div>
+      ` : ''}
       ${(data.creditGroups || []).length ? `
         <section class="filmography">
           <h2 class="section-title">${escapeHtml(data.name)} credits</h2>
@@ -1464,6 +1487,14 @@ async function renderArtist(id) {
           <div class="credit-tabs" role="tablist">${data.creditGroups.map((g, i) => `<button type="button" class="credit-tab${i ? '' : ' on'}" data-i="${i}" role="tab">${escapeHtml(g.label)} <span>${g.count}</span></button>`).join('')}</div>
           <div id="credit-table"></div>
         </section>
+      ` : ''}
+      ${(data.workedWith || []).length ? `
+        <h2 class="section-title">Worked with</h2>
+        <div class="chip-list">${data.workedWith.map((w) => `<a class="collab-chip${w.id ? ' artist-link' : ''}" href="${w.id ? `/artist/${w.id}` : `/name/${encodeURIComponent(w.name)}`}"${w.id ? ` data-id="${w.id}"` : ''}>${escapeHtml(w.name)} <span>${w.albums}</span></a>`).join('')}</div>
+      ` : ''}
+      ${(data.collaborators || []).length ? `
+        <h2 class="section-title">Frequent collaborators</h2>
+        <div class="chip-list">${data.collaborators.map((c) => `<a class="collab-chip artist-link" href="/artist/${c.id}" data-id="${c.id}">${escapeHtml(c.name)} <span>${c.shared} albums</span></a>`).join('')}</div>
       ` : ''}
       ${(data.albums || []).length ? `
         <h2 class="section-title">Discography</h2>
@@ -1473,7 +1504,7 @@ async function renderArtist(id) {
         <h2 class="section-title">Appears on</h2>
         <div class="grid" id="artist-appearances-grid"></div>
       ` : ''}
-      ${!(data.albums || []).length && !(data.appearances || []).length ? '<p class="empty">Nothing on file for this artist yet.</p>' : ''}
+      ${!(data.albums || []).length && !(data.appearances || []).length && !(data.creditGroups || []).length ? '<p class="empty">Nothing on file for this artist yet.</p>' : ''}
       <div id="similar-artists-section" class="hidden">
         <h2 class="section-title">Similar artists</h2>
         <div class="grid" id="similar-artists-grid"></div>
@@ -1488,6 +1519,9 @@ async function renderArtist(id) {
     if (grid) for (const al of data.albums || []) grid.appendChild(albumCard(al));
     const appearGrid = document.getElementById('artist-appearances-grid');
     if (appearGrid) for (const al of data.appearances || []) appearGrid.appendChild(albumCard(al));
+    for (const a of artistEl.querySelectorAll('.known-card, .collab-chip.artist-link')) {
+      a.addEventListener('click', (e) => { e.preventDefault(); track('credit_click', a.textContent.trim().slice(0, 80)); navigate(a.getAttribute('href')); });
+    }
     if ((data.creditGroups || []).length) {
       const tabs = artistEl.querySelectorAll('.credit-tab');
       const show = (i) => {
@@ -2067,6 +2101,35 @@ function closeSuggest() {
   suggestDropdown.innerHTML = '';
 }
 
+const ROLE_NOUN = { producer: 'Producer', songwriter: 'Songwriter', performer: 'Musician', arrangement: 'Arranger', engineering: 'Engineer' };
+function personMeta(p) {
+  const bits = [];
+  if (p.topCategory && ROLE_NOUN[p.topCategory]) bits.push(ROLE_NOUN[p.topCategory]);
+  else if (p.type === 'Group') bits.push('Band');
+  else if (p.disambiguation) bits.push(p.disambiguation);
+  if (p.credits) bits.push(`${p.credits} album credits`);
+  else if (p.albums) bits.push(`${p.albums} albums`);
+  return bits.join(' · ');
+}
+
+function suggestPersonItem(p) {
+  const item = document.createElement('div');
+  item.className = 'suggest-item suggest-person';
+  item.innerHTML = `
+    ${p.imageUrl ? `<img class="suggest-thumb round" src="${escapeHtml(p.imageUrl)}" alt="" onerror="this.remove()" />` : `<div class="suggest-thumb round initial">${escapeHtml((p.name || '?')[0])}</div>`}
+    <div class="suggest-text">
+      <div class="suggest-title">${escapeHtml(p.name)}</div>
+      <div class="suggest-meta">${escapeHtml(personMeta(p))}</div>
+    </div>`;
+  item.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    closeSuggest();
+    track('search', `person: ${p.name}`);
+    navigate(`/artist/${p.id}`);
+  });
+  return item;
+}
+
 function suggestItem(r) {
   const item = document.createElement('div');
   item.className = 'suggest-item';
@@ -2101,12 +2164,14 @@ input.addEventListener('input', () => {
       const data = await res.json();
       if (myToken !== suggestToken) return;
       const items = data.results || [];
-      if (!items.length) {
+      const people = data.people || [];
+      if (!items.length && !people.length) {
         closeSuggest();
         return;
       }
       suggestDropdown.innerHTML = '';
-      for (const r of items) suggestDropdown.appendChild(suggestItem(r));
+      for (const p of people) suggestDropdown.appendChild(suggestPersonItem(p));
+      for (const r of items.slice(0, people.length ? 6 : 8)) suggestDropdown.appendChild(suggestItem(r));
       suggestDropdown.classList.remove('hidden');
     } catch {
       closeSuggest();

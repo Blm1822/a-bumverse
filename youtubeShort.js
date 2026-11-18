@@ -16,7 +16,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { inMemoriam, onThisDayAlbumsForSocial, trendingAlbumsForSocial, hasPostedToday, hasPostedAboutItem, recordSocialPost, artistAlbumCoversForRetrospective } from './db.js';
+import { inMemoriam, onThisDayAlbumsForSocial, trendingAlbumsForSocial, hasPostedToday, hasPostedAboutItem, recordSocialPost, artistAlbumCoversForRetrospective, peopleForShort, albumsForCreditsShort, artistImages, getArtistLocal, getAlbumLocal, getPersonCredits } from './db.js';
+import { personCreditGroups, summarizeCredits } from './credits.js';
+import { personShort, albumShort, rotation } from './shortScripts.js';
 import { synthesizeSpeech } from './elevenlabs.js';
 import { renderVideo, getAudioDurationSeconds } from './video.js';
 import { uploadShort } from './youtube.js';
@@ -64,7 +66,7 @@ function inMemoriamScript() {
     imageUrls,
     contentType: 'in_memoriam_yt',
     itemId: artist.id,
-    url: `${SITE_URL}/artist/${artist.id}`,
+    url: `${SITE_URL}/artist/${artist.id}?ref=yt`,
     listenUrl: spotifySearchUrl(artist.name),
   };
 }
@@ -92,9 +94,32 @@ function onThisDayScript() {
     imageUrls,
     contentType: 'on_this_day_yt',
     itemId: album.id,
-    url: `${SITE_URL}/album/${album.id}`,
+    url: `${SITE_URL}/album/${album.id}?ref=yt`,
     listenUrl: spotifySearchUrl(`${album.artist} ${album.title}`),
   };
+}
+
+// Credits-themed formats (shortScripts.js): what makes Albumverse different.
+function personCreditsScript() {
+  for (const p of peopleForShort(10)) {
+    const person = getArtistLocal(p.id);
+    if (!person) continue;
+    const script = personShort(person, personCreditGroups(person, getPersonCredits(p.id)), SITE_URL);
+    if (script) return { ...script, listenUrl: spotifySearchUrl(person.name) };
+  }
+  return null;
+}
+
+function albumCreditsScript() {
+  for (const a of albumsForCreditsShort(10)) {
+    const album = getAlbumLocal(a.id);
+    if (!album || !album.coverArtUrl) continue;
+    const groups = summarizeCredits(album);
+    const ids = groups.flatMap((g) => g.people.map((x) => x.mbid)).filter(Boolean);
+    const script = albumShort(album, groups, SITE_URL, artistImages(ids, 3));
+    if (script) return { ...script, listenUrl: spotifySearchUrl(`${album.artist} ${album.title}`) };
+  }
+  return null;
 }
 
 function trendingScript() {
@@ -112,7 +137,7 @@ function trendingScript() {
     imageUrls,
     contentType: 'trending_yt',
     itemId: album.id,
-    url: `${SITE_URL}/album/${album.id}`,
+    url: `${SITE_URL}/album/${album.id}?ref=yt`,
     listenUrl: spotifySearchUrl(`${album.artist} ${album.title}`),
   };
 }
@@ -163,7 +188,17 @@ export async function buildDailyShort() {
   // when it can't produce usable images, so an imageless top pick correctly
   // falls through to the next option instead of dead-ending the cascade -
   // see the comment in inMemoriamScript() for why that distinction matters.
-  const script = inMemoriamScript() || (hasPostedToday(PLATFORM, todayUTC()) ? null : (onThisDayScript() || trendingScript()));
+  // Daily format rotates person -> album credits -> On This Day (shortScripts.rotation), each
+  // falling through to the others and then Trending if it has nothing new.
+  const pickers = { person: personCreditsScript, album: albumCreditsScript, on_this_day: onThisDayScript };
+  const daily = () => {
+    for (const k of rotation()) {
+      const s = pickers[k]();
+      if (s) return s;
+    }
+    return trendingScript();
+  };
+  const script = inMemoriamScript() || (hasPostedToday(PLATFORM, todayUTC()) ? null : daily());
   if (!script) return skipped('Nothing new to cover today (already posted about everything current In Memoriam/On This Day/Trending picks have to offer, or none of today\'s picks have usable images).');
 
   const musicPath = await pickMusicTrack();
@@ -207,7 +242,7 @@ export async function buildDailyShort() {
       itemId: script.itemId,
       url: script.url,
       title: script.title,
-      description: `${script.narration} ${script.url}\nListen: ${script.listenUrl}`,
+      description: `${script.narration}\n\nFull credits: ${script.url}\nListen: ${script.listenUrl}\n\n#music #credits #shorts`,
     };
   } catch (err) {
     console.error('daily short render failed:', err.message);

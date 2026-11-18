@@ -139,3 +139,26 @@ test('full-career rows group IMDb-style with counts, albums once per group', () 
   assert.equal(s.nCredits, 3);
   assert.match(personDescription({ name: 'Mutt Lange', type: 'Person', creditGroups: g }), /credited on Hysteria, Come On Over and Back in Black/);
 });
+
+import { knownFor } from './credits.js';
+
+test('known for: one album per top collaborator, albums first', () => {
+  const rows = [
+    { category: 'producer', role: 'producer', rgId: 'coo', rgTitle: 'Come On Over', date: '1997', byArtist: 'Shania Twain', rgType: 'Album' },
+    { category: 'producer', role: 'producer', rgId: 'wim', rgTitle: 'The Woman in Me', date: '1995', byArtist: 'Shania Twain', rgType: 'Album' },
+    { category: 'producer', role: 'producer', rgId: 'yst', rgTitle: "You're Still the One", date: '1998', byArtist: 'Shania Twain', rgType: 'Single' },
+    { category: 'producer', role: 'producer', rgId: 'hys', rgTitle: 'Hysteria', date: '1987', byArtist: 'Def Leppard', rgType: 'Album' },
+    { category: 'producer', role: 'producer', rgId: 'bib', rgTitle: 'Back in Black', date: '1980', byArtist: 'AC/DC', rgType: 'Album' },
+  ];
+  const a = { name: 'Mutt Lange', type: 'Person' };
+  a.creditGroups = personCreditGroups(a, rows);
+  const s = personSummary(a);
+  assert.deepEqual(s.actCounts[0], { name: 'Shania Twain', albums: 3 });
+  const k = knownFor(s, 3);
+  assert.deepEqual(k.map((x) => x.title), ['The Woman in Me', 'Hysteria', 'Back in Black']);
+  assert.match(k[0].coverArtUrl, /release-group\/wim\/front-250$/);
+  const h = personHtml(a, s, { knownFor: k, workedWith: [{ name: 'Shania Twain', id: 'st', albums: 3 }, { name: 'AC/DC', albums: 1 }], collaborators: [] });
+  assert.match(h, /<h2>Known for<\/h2>/);
+  assert.match(h, /<a href="\/artist\/st">Shania Twain<\/a> \(3 albums\)/);
+  assert.match(h, /<a href="\/name\/AC%2FDC">AC\/DC<\/a> \(1 album\)/);
+});
