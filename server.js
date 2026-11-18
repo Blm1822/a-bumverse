@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, markSongCredits, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames, browsePeople, countPeople, PEOPLE_ROLES, songsForPerson } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, markSongCredits, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames, browsePeople, countPeople, PEOPLE_ROLES, songsForPerson, isBotTraffic, reclassifyBotTraffic } from './db.js';
 import { buildHome } from './home.js';
 import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups, knownFor } from './credits.js';
 import { searchReleaseGroups, getAlbumDetail, searchArtist } from './mb.js';
@@ -158,6 +158,7 @@ function logView(req, extraQuery) {
         : (Object.keys(req.query).length ? JSON.stringify(req.query) : null),
       referrer: req.get('referer') || null,
       userAgent: req.get('user-agent') || null,
+      ip: req.ip || null,
     });
   } catch (err) {
     console.error('page view logging failed', err.message);
@@ -438,7 +439,7 @@ app.get('/api/album/:mbid', async (req, res) => {
 
   const cached = getAlbumLocal(mbid);
   if (cached) {
-    prioritizeAlbum(mbid);
+    if (fromHuman(req)) prioritizeAlbum(mbid);
     return res.json(withCreditSummary(cached));
   }
 
@@ -690,7 +691,7 @@ app.get('/api/artist/:mbid', async (req, res) => {
       console.error('wikipedia bio lookup failed', artist.name, err.message);
     }
   }
-  withPersonCredits(artist);
+  withPersonCredits(artist, req);
   res.json({ ...artist, roleLine: personSummary(artist).roleLine });
 });
 
@@ -921,9 +922,14 @@ app.get('/album/:mbid', (req, res) => {
 // Full-career credit groups (personCredits.js): from MusicBrainz relationships once fetched,
 // else from albums already on the site. Opening a not-yet-filled person moves them to the
 // front of the background queue.
-function withPersonCredits(artist) {
+// Bots don't get to reorder the background queues.
+function fromHuman(req) {
+  return !isBotTraffic(req.get('user-agent') || null, req.get('referer') || null, req.query?.q || null, req.ip || null);
+}
+
+function withPersonCredits(artist, req) {
   const fetched = creditsFetchedAt(artist.id);
-  if (!fetched && artist.type !== 'Group') prioritizePerson(artist.id);
+  if (!fetched && artist.type !== 'Group' && fromHuman(req)) prioritizePerson(artist.id);
   artist.creditGroups = personCreditGroups(artist, getPersonCredits(artist.id));
   artist.creditsComplete = !!fetched;
   if (artist.type !== 'Group') {
@@ -953,7 +959,7 @@ app.get('/name/:name', async (req, res) => {
     const found = await searchArtist(name);
     if (found && found.name.toLowerCase() === name.toLowerCase()) {
       upsertArtist({ mbid: found.mbid, name: found.name, disambiguation: found.disambiguation });
-      prioritizePerson(found.mbid);
+      if (fromHuman(req)) prioritizePerson(found.mbid);
       return res.redirect(302, `/artist/${found.mbid}`);
     }
   } catch (err) {
@@ -966,7 +972,7 @@ app.get('/artist/:mbid', (req, res) => {
   logView(req, null);
   const artist = MBID_RE.test(req.params.mbid) ? getArtistLocal(req.params.mbid) : null;
   if (!artist) return res.sendFile(indexHtmlPath);
-  withPersonCredits(artist);
+  withPersonCredits(artist, req);
   // Most of the site's search impressions are people's names landing here, so the title,
   // description and server-rendered HTML lead with what this person did (credits.js).
   const summary = personSummary(artist);
@@ -1419,6 +1425,18 @@ app.listen(PORT, () => {
   // Paused by default (council, Nov 2026): it needs a manual YouTube re-login every week and
   // has no measured return. Set YOUTUBE_SHORTS=on in Railway to turn it back on.
   startPersonEnricher();
+  // Re-check stored traffic for scrapers now and every 15 minutes (catches
+  // anything the live checks missed, e.g. across a restart).
+  const reclass = () => {
+    try {
+      const n = reclassifyBotTraffic();
+      if (n) console.log(`bot filter: reclassified ${n} page views as bot traffic`);
+    } catch (err) {
+      console.error('bot reclassify failed', err.message);
+    }
+  };
+  setTimeout(reclass, 20000).unref();
+  setInterval(reclass, 15 * 60000).unref();
   startSongCreditsRefresh();
   if (process.env.YOUTUBE_SHORTS === 'on') startYoutubePoster();
   else console.log('YouTube Shorts poster paused (set YOUTUBE_SHORTS=on to enable)');
