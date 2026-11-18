@@ -5,9 +5,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary } from './db.js';
-import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml } from './credits.js';
-import { searchReleaseGroups, getAlbumDetail } from './mb.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName } from './db.js';
+import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups } from './credits.js';
+import { searchReleaseGroups, getAlbumDetail, searchArtist } from './mb.js';
+import { prioritizePerson, startPersonEnricher } from './personCredits.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
@@ -672,6 +673,7 @@ app.get('/api/artist/:mbid', async (req, res) => {
       console.error('wikipedia bio lookup failed', artist.name, err.message);
     }
   }
+  withPersonCredits(artist);
   res.json({ ...artist, roleLine: personSummary(artist).roleLine });
 });
 
@@ -892,10 +894,43 @@ app.get('/album/:mbid', (req, res) => {
   }));
 });
 
+// Full-career credit groups (personCredits.js): from MusicBrainz relationships once fetched,
+// else from albums already on the site. Opening a not-yet-filled person moves them to the
+// front of the background queue.
+function withPersonCredits(artist) {
+  const fetched = creditsFetchedAt(artist.id);
+  if (!fetched && artist.type !== 'Group') prioritizePerson(artist.id);
+  artist.creditGroups = personCreditGroups(artist, getPersonCredits(artist.id));
+  artist.creditsComplete = !!fetched;
+  return artist;
+}
+
+// Credited names that came from Discogs (no MusicBrainz id): send them to their person page
+// if we know them, otherwise look them up once on MusicBrainz, otherwise search.
+const NAME_RE = /^[^<>/\\]{1,120}$/;
+app.get('/name/:name', async (req, res) => {
+  const name = String(req.params.name || '').trim();
+  if (!NAME_RE.test(name)) return res.redirect('/');
+  const local = findArtistByExactName(name);
+  if (local.length === 1) return res.redirect(301, `/artist/${local[0].id}`);
+  try {
+    const found = await searchArtist(name);
+    if (found && found.name.toLowerCase() === name.toLowerCase()) {
+      upsertArtist({ mbid: found.mbid, name: found.name, disambiguation: found.disambiguation });
+      prioritizePerson(found.mbid);
+      return res.redirect(302, `/artist/${found.mbid}`);
+    }
+  } catch (err) {
+    console.error('name lookup failed', name, err.message);
+  }
+  res.redirect(302, `/search?q=${encodeURIComponent(name)}`);
+});
+
 app.get('/artist/:mbid', (req, res) => {
   logView(req, null);
   const artist = MBID_RE.test(req.params.mbid) ? getArtistLocal(req.params.mbid) : null;
   if (!artist) return res.sendFile(indexHtmlPath);
+  withPersonCredits(artist);
   // Most of the site's search impressions are people's names landing here, so the title,
   // description and server-rendered HTML lead with what this person did (credits.js).
   const summary = personSummary(artist);
@@ -1299,6 +1334,7 @@ app.listen(PORT, () => {
   startSocialPoster();
   // Paused by default (council, Nov 2026): it needs a manual YouTube re-login every week and
   // has no measured return. Set YOUTUBE_SHORTS=on in Railway to turn it back on.
+  startPersonEnricher();
   if (process.env.YOUTUBE_SHORTS === 'on') startYoutubePoster();
   else console.log('YouTube Shorts poster paused (set YOUTUBE_SHORTS=on to enable)');
   startWikidataDeathCheck();

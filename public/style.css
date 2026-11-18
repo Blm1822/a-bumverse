@@ -861,3 +861,16 @@ table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-t
 .person-credits a:hover { color: var(--accent); }
 .person-credits + .section-title, .table-scroll + .section-title { margin-top: 28px; }
 .site-footer { text-align: center; color: var(--muted); font-size: 12px; padding: 32px 16px 40px; } .site-footer a { color: var(--muted); }
+
+/* IMDb-style filmography on person pages */
+.filmography { margin-top: 24px; }
+.credits-note { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+.credit-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.credit-tab { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+.credit-tab span { color: var(--muted); margin-left: 4px; }
+.credit-tab.on { border-color: var(--accent); background: var(--panel); }
+.credit-tab.on span { color: var(--accent); }
+.person-credits td.yr { color: var(--muted); width: 56px; }
+.person-credits .by, .person-credits .songs { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.name-link { color: inherit; text-decoration: underline dotted var(--border); text-underline-offset: 3px; }
+.person-credits .rg-type { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }

@@ -141,6 +141,11 @@ const ROLE_ALIASES = [
   [/master/, 'mastering'],
   [/^(lead vocals|vocals|vocal|voice|backing vocals|background vocals)$/, 'vocals'],
   [/^(performer|instrument|performing orchestra)$/, 'performer'],
+  [/guitar/, 'guitar'],
+  [/bass/, 'bass'],
+  [/drum|percussion/, 'drums'],
+  [/keyboard|piano|synth|organ/, 'keyboards'],
+  [/vocal/, 'vocals'],
 ];
 
 export function normalizeRole(role) {
@@ -149,28 +154,84 @@ export function normalizeRole(role) {
   return r;
 }
 
-export function personSummary(artist) {
-  const credited = [...(artist?.albums || []), ...(artist?.appearances || [])];
-  const roleAlbums = new Map();
-  for (const a of credited) {
-    for (const r of new Set((a.roles || []).map(normalizeRole).filter(Boolean))) {
-      roleAlbums.set(r, (roleAlbums.get(r) || 0) + 1);
+const CATEGORY_ORDER = ['producer', 'songwriter', 'performer', 'arrangement', 'engineering', 'other'];
+const CATEGORY_LABEL = { producer: 'Producer', songwriter: 'Songwriter', performer: 'Musician', arrangement: 'Arranger', engineering: 'Engineering & mixing', other: 'Other' };
+const CATEGORY_NOUN = { producer: 'producer', songwriter: 'songwriter', arrangement: 'arranger', engineering: 'engineer' };
+
+// IMDb-style groups: one entry per album per category, newest first, with the person's
+// roles and the songs they're credited on. rows = getPersonCredits() (full career from
+// MusicBrainz); without them, falls back to the albums already on the site.
+export function personCreditGroups(artist, rows) {
+  const src = rows && rows.length ? rows : localRows(artist);
+  const groups = new Map();
+  for (const r of src) {
+    const cat = CATEGORY_ORDER.includes(r.category) ? r.category : 'other';
+    if (!groups.has(cat)) groups.set(cat, new Map());
+    const g = groups.get(cat);
+    if (!g.has(r.rgId)) g.set(r.rgId, { id: r.rgId, title: r.rgTitle, type: r.rgType || null, date: r.date || null, by: r.byArtist || r.by || '', roles: new Set(), songs: new Set() });
+    const it = g.get(r.rgId);
+    if (r.role) it.roles.add(r.role);
+    if (r.song) it.songs.add(r.song);
+    if (!it.date && r.date) it.date = r.date;
+  }
+  return CATEGORY_ORDER.filter((c) => groups.has(c)).map((c) => {
+    const items = [...groups.get(c).values()]
+      .map((it) => ({ ...it, roles: [...it.roles].slice(0, 4), songs: [...it.songs].slice(0, 6), songCount: it.songs.size }))
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    return { key: c, label: CATEGORY_LABEL[c], count: items.length, items };
+  }).sort((a, b) => b.count - a.count || CATEGORY_ORDER.indexOf(a.key) - CATEGORY_ORDER.indexOf(b.key));
+}
+
+function localRows(artist) {
+  const out = [];
+  for (const a of artist?.appearances || []) {
+    const roles = (a.roles || []).length ? a.roles : ['performer'];
+    for (const role of roles) {
+      const n = normalizeRole(role);
+      const category = n === 'songwriter' ? 'songwriter' : n === 'producer' ? 'producer'
+        : /engineer|mixing|mastering/.test(n) ? 'engineering' : /arrang|conduct/.test(n) ? 'arrangement' : 'performer';
+      out.push({ category, role, rgId: a.id, rgTitle: a.title, date: a.date, by: a.artist });
     }
   }
-  const topRoles = [...roleAlbums.entries()]
-    .filter(([r]) => r !== 'performer' || roleAlbums.size === 1)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([r]) => r);
+  return out;
+}
+
+export function personSummary(artist, groups = artist?.creditGroups || personCreditGroups(artist, null)) {
+  const nouns = [];
+  // weigh songwriting by songs written, not albums, so a hit songwriter reads as a songwriter
+  const weight = (g) => (g.key === 'songwriter' ? g.items.reduce((n, it) => n + Math.max(1, it.songCount || 0), 0) : g.count);
+  for (const g of [...groups].sort((a, b) => weight(b) - weight(a))) {
+    if (nouns.length >= 2) break;
+    if (g.key === 'performer') {
+      const counts = new Map();
+      for (const it of g.items) for (const r of it.roles) counts.set(normalizeRole(r), (counts.get(normalizeRole(r)) || 0) + 1);
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (top && top[0] !== 'performer') nouns.push(top[0]);
+      else nouns.push('musician');
+    } else if (CATEGORY_NOUN[g.key]) {
+      nouns.push(CATEGORY_NOUN[g.key]);
+    }
+  }
   const acts = new Map();
-  for (const a of artist?.appearances || []) {
-    const who = (a.artist || '').trim();
-    if (who && who.toLowerCase() !== String(artist.name).toLowerCase()) acts.set(who, (acts.get(who) || 0) + 1);
+  const self = String(artist?.name || '').toLowerCase();
+  const albums = new Map();
+  for (const g of groups) for (const it of g.items) {
+    albums.set(it.id, it);
+    const who = (it.by || '').trim();
+    if (who && who.toLowerCase() !== self) acts.set(who, (acts.get(who) || 0) + 1);
   }
   const topActs = [...acts.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
   let roleLine = '';
-  if (topRoles.length) roleLine = topRoles.slice(0, 2).join(', ') + (topActs[0] ? ` · ${topActs[0]}` : '');
+  if (nouns.length) roleLine = nouns.join(', ') + (topActs[0] ? ` · ${topActs[0]}` : '');
   else if (artist?.disambiguation) roleLine = artist.disambiguation;
-  return { roleLine, topRoles, topActs, nAlbums: (artist?.albums || []).length, nCredits: (artist?.appearances || []).length };
+  // notable titles: the earliest album with each of their most frequent collaborators
+  const notable = [];
+  for (const act of topActs.slice(0, 5)) {
+    const first = [...albums.values()].filter((a) => a.by === act).sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999')))[0];
+    if (first && !notable.includes(first.title)) notable.push(first.title);
+  }
+  for (const a of albums.values()) if (notable.length < 3 && !notable.includes(a.title)) notable.push(a.title);
+  return { roleLine, topRoles: nouns, topActs, nAlbums: (artist?.albums || []).length, nCredits: albums.size, notable, groups };
 }
 
 const isGroup = (artist) => String(artist?.type || '').toLowerCase() === 'group';
@@ -195,13 +256,14 @@ export function personDescription(artist, s = personSummary(artist), max = 158) 
   if (isGroup(artist)) {
     const t = titlesOf(artist.albums || [], 3);
     d = `${name} discography: ${s.nAlbums} album${s.nAlbums === 1 ? '' : 's'}${t.length ? ` including ${list(t)}` : ''}, with full credits for who wrote, produced and played on each.`;
-  } else if (s.nCredits || s.nAlbums) {
-    const all = [...(artist.appearances || []), ...(artist.albums || [])];
-    const t = titlesOf(all, 3);
-    const n = s.nCredits + s.nAlbums;
-    const unique = new Set(all.map((a) => a.title)).size;
-    const which = t.length === unique && unique === n ? `on ${list(t)}` : `on ${n} album${n === 1 ? '' : 's'} including ${list(t)}`;
+  } else if (s.nCredits) {
+    const n = s.nCredits;
+    const t = s.notable.slice(0, 3);
+    const which = n <= t.length ? `on ${list(t)}` : `on ${n} albums including ${list(t)}`;
     d = `${name}${s.roleLine ? ` (${s.roleLine})` : ''}: credited ${which}. Every album ${name} wrote, produced or played on, with roles.`;
+  } else if (s.nAlbums) {
+    const t = titlesOf(artist.albums || [], 3);
+    d = `${name}: ${s.nAlbums} album${s.nAlbums === 1 ? '' : 's'}${t.length ? ` including ${list(t)}` : ''}, with full credits.`;
   } else {
     d = artist.bio ? String(artist.bio) : `${name}: credits and albums on Albumverse.`;
   }
@@ -211,17 +273,22 @@ export function personDescription(artist, s = personSummary(artist), max = 158) 
 
 export function personHtml(artist, s = personSummary(artist)) {
   const yr = (a) => (a.date ? ` (${esc(String(a.date).slice(0, 4))})` : '');
+  const groups = (s.groups || []).map((g) => {
+    const items = g.items.slice(0, 150).map((it) => {
+      const extra = [it.roles.join(', '), it.songs.length ? `“${it.songs.slice(0, 3).join('”, “')}”${it.songCount > 3 ? ` +${it.songCount - 3}` : ''}` : '']
+        .filter(Boolean).join('; ');
+      return `<li><a href="/album/${esc(it.id)}">${esc(it.title)}</a>${it.by ? ` by ${esc(it.by)}` : ''}${yr(it)}${extra ? `: ${esc(extra)}` : ''}</li>`;
+    }).join('');
+    return `<h2>${esc(g.label)} (${g.count})</h2><ul>${items}</ul>`;
+  }).join('');
   const albums = (artist.albums || [])
     .map((a) => `<li><a href="/album/${esc(a.id)}">${esc(a.title)}</a>${yr(a)}</li>`).join('');
-  const credits = (artist.appearances || [])
-    .map((a) => `<li><a href="/album/${esc(a.id)}">${esc(a.title)}</a> by ${esc(a.artist || '')}${yr(a)}${(a.roles || []).length ? `: ${esc(a.roles.join(', '))}` : ''}</li>`)
-    .join('');
   const bio = artist.bio ? `<p>${esc(String(artist.bio).slice(0, 700))}</p>` : '';
   return `<article class="ssr-artist">
   <h1>${esc(artist.name)}</h1>
   ${s.roleLine ? `<p>${esc(s.roleLine)}</p>` : ''}
   ${bio}
-  ${credits ? `<h2>Credits</h2><ul>${credits}</ul>` : ''}
+  ${groups}
   ${albums ? `<h2>${isGroup(artist) ? 'Discography' : 'Albums'}</h2><ul>${albums}</ul>` : ''}
 </article>`;
 }

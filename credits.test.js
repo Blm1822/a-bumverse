@@ -78,7 +78,7 @@ test('person role line comes from what they did, plus their main act', () => {
 
 test('person description names albums and stays short', () => {
   const d = personDescription(person);
-  assert.ok(d.startsWith('Quinn Allman (guitar, songwriter · The Used): credited on Lies for the Liars, In Love and Death and The Used.'), d);
+  assert.ok(d.startsWith('Quinn Allman (guitar, songwriter · The Used): credited on The Used, Lies for the Liars and In Love and Death.'), d);
   assert.ok(d.length <= 158);
 });
 
@@ -94,7 +94,9 @@ test('roles are normalized and person HTML lists credits', () => {
   assert.equal(normalizeRole('Written-By'), 'songwriter');
   const h = personHtml(person);
   assert.match(h, /<h1>Quinn Allman<\/h1>/);
-  assert.match(h, /<a href="\/album\/a2">In Love and Death<\/a> by The Used \(2004\): guitar, composer/);
+  assert.match(h, /<h2>Musician \(3\)<\/h2>/);
+  assert.match(h, /<a href="\/album\/a2">In Love and Death<\/a> by The Used \(2004\): guitar/);
+  assert.match(h, /<h2>Songwriter \(2\)<\/h2>/);
 });
 
 test('main producers lead; assistants and coordinators do not', () => {
@@ -111,9 +113,29 @@ test('main producers lead; assistants and coordinators do not', () => {
 test('repeated titles are not listed twice; long role lines shorten the title', () => {
   const p = { name: 'Ali B', type: 'Person', albums: [{ id: '1', title: 'Bonkano' }, { id: '2', title: 'Bonkano' }], appearances: [] };
   assert.equal(personDescription(p).split('Bonkano').length - 1, 1);
-  assert.match(personDescription(p), /credited on 2 albums including Bonkano/);
+  assert.equal(personDescription(p), 'Ali B: 2 albums including Bonkano, with full credits.');
   const rob = { name: 'Rob Bisel', type: 'Person', albums: [], appearances: [
     { id: 'a', title: 'X', artist: 'Neil Young, Promise of the Real', roles: ['engineer [assistant]', 'writer'] }] };
-  assert.equal(personTitle(rob), 'Rob Bisel: engineer, songwriter · Credits & Albums');
+  assert.equal(personTitle(rob), 'Rob Bisel: songwriter, engineer · Credits & Albums');
   assert.equal(normalizeRole('engineer [assistant]'), 'engineer');
+});
+
+import { personCreditGroups } from './credits.js';
+
+test('full-career rows group IMDb-style with counts, albums once per group', () => {
+  const rows = [
+    { category: 'producer', role: 'producer', rgId: 'h', rgTitle: 'Hysteria', date: '1987-08-03', byArtist: 'Def Leppard' },
+    { category: 'producer', role: 'producer', rgId: 'b', rgTitle: 'Back in Black', date: '1980-07-25', byArtist: 'AC/DC' },
+    { category: 'songwriter', role: 'writer', rgId: 'h', rgTitle: 'Hysteria', date: '1987-08-03', byArtist: 'Def Leppard', song: 'Pour Some Sugar on Me' },
+    { category: 'songwriter', role: 'writer', rgId: 'h', rgTitle: 'Hysteria', date: '1987-08-03', byArtist: 'Def Leppard', song: 'Animal' },
+    { category: 'producer', role: 'producer', rgId: 'c', rgTitle: 'Come On Over', date: '1997-11-04', byArtist: 'Shania Twain' },
+  ];
+  const g = personCreditGroups({ name: 'Mutt Lange' }, rows);
+  assert.deepEqual(g.map((x) => [x.label, x.count]), [['Producer', 3], ['Songwriter', 1]]);
+  assert.deepEqual(g[0].items.map((i) => i.title), ['Come On Over', 'Hysteria', 'Back in Black']);
+  assert.deepEqual(g[1].items[0].songs, ['Pour Some Sugar on Me', 'Animal']);
+  const s = personSummary({ name: 'Mutt Lange', type: 'Person', creditGroups: g });
+  assert.equal(s.roleLine, 'producer, songwriter · Def Leppard');
+  assert.equal(s.nCredits, 3);
+  assert.match(personDescription({ name: 'Mutt Lange', type: 'Person', creditGroups: g }), /credited on Hysteria, Come On Over and Back in Black/);
 });
