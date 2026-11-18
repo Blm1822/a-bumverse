@@ -164,6 +164,24 @@ CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_credits_track ON track_credits(track_id);
+-- A person's full career from MusicBrainz relationships (personCredits.js), one row per
+-- credit mapped to the original album (release group). Albums may not be in \`albums\` yet;
+-- their pages fetch them on first visit.
+CREATE TABLE IF NOT EXISTS person_credits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artist_mbid TEXT NOT NULL,
+  category TEXT NOT NULL,
+  role TEXT,
+  rg_mbid TEXT NOT NULL,
+  rg_title TEXT,
+  rg_type TEXT,
+  release_date TEXT,
+  by_artist TEXT,
+  song TEXT,
+  source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_person_credits_artist ON person_credits(artist_mbid);
+
 -- Things a visitor did on a page (the "meaningful actions" in the 60-day test):
 -- search, credit_click, outbound (listen/merch/tickets links), share.
 CREATE TABLE IF NOT EXISTS events (
@@ -911,6 +929,69 @@ export function logPageView({ path: p, query, referrer, userAgent }) {
   db.prepare('INSERT INTO page_views (path, query, referrer, user_agent, is_bot) VALUES (?, ?, ?, ?, ?)').run(
     p, query || null, referrer || null, userAgent || null, isBotRequest(userAgent, referrer) ? 1 : 0
   );
+}
+
+// ---- person credits (IMDb-style person pages) ----
+if (!db.prepare('PRAGMA table_info(artists)').all().map((c) => c.name).includes('credits_fetched_at')) {
+  db.exec('ALTER TABLE artists ADD COLUMN credits_fetched_at TEXT;');
+}
+
+export function savePersonCredits(mbid, rows) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM person_credits WHERE artist_mbid = ?').run(mbid);
+    const ins = db.prepare(
+      `INSERT INTO person_credits (artist_mbid, category, role, rg_mbid, rg_title, rg_type, release_date, by_artist, song, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const r of rows) {
+      ins.run(mbid, r.category, r.role || null, r.rgId, r.rgTitle || null, r.rgType || null, r.date || null, r.by || null, r.song || null, r.source || null);
+    }
+    db.prepare("UPDATE artists SET credits_fetched_at = datetime('now') WHERE mbid = ?").run(mbid);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function markCreditsFetched(mbid) {
+  db.prepare("UPDATE artists SET credits_fetched_at = datetime('now') WHERE mbid = ?").run(mbid);
+}
+
+export function getPersonCredits(mbid) {
+  return db.prepare(
+    `SELECT category, role, rg_mbid as rgId, rg_title as rgTitle, rg_type as rgType, release_date as date,
+            by_artist as byArtist, song, source
+     FROM person_credits WHERE artist_mbid = ? ORDER BY release_date DESC`
+  ).all(mbid);
+}
+
+export function creditsFetchedAt(mbid) {
+  return db.prepare('SELECT credits_fetched_at as at FROM artists WHERE mbid = ?').get(mbid)?.at || null;
+}
+
+// Who to fill in next: people whose pages get crawled or visited most (search engines'
+// interest is the point), never fetched or older than 60 days; then anyone credited on a track.
+export function nextPeopleToEnrich(limit = 20) {
+  return db.prepare(
+    `WITH views AS (
+       SELECT substr(path, 9) AS mbid, COUNT(*) AS n FROM page_views
+       WHERE path LIKE '/artist/%' AND created_at >= datetime('now', '-30 days')
+       GROUP BY path
+     )
+     SELECT a.mbid, a.name, COALESCE(v.n, 0) AS views FROM artists a
+     LEFT JOIN views v ON v.mbid = a.mbid
+     WHERE (a.credits_fetched_at IS NULL OR a.credits_fetched_at < datetime('now', '-60 days'))
+       AND (COALESCE(a.type, 'Person') != 'Group')
+       AND (v.n > 0 OR EXISTS (SELECT 1 FROM track_credits tc WHERE tc.artist_mbid = a.mbid))
+     ORDER BY views DESC
+     LIMIT ?`
+  ).all(limit);
+}
+
+export function findArtistByExactName(name) {
+  return db.prepare('SELECT mbid as id, name FROM artists WHERE name = ? COLLATE NOCASE LIMIT 2').all(name);
 }
 
 export const EVENT_TYPES = new Set(['search', 'credit_click', 'outbound', 'share']);

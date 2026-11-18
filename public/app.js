@@ -361,7 +361,7 @@ function creditTags(list) {
     .map((c) => {
       const name = c.mbid
         ? `<a href="/artist/${c.mbid}" class="artist-link" data-id="${c.mbid}">${escapeHtml(c.name)}</a>`
-        : escapeHtml(c.name);
+        : `<a href="/name/${encodeURIComponent(c.name)}" class="name-link">${escapeHtml(c.name)}</a>`;
       return `<span class="credit-tag">${name} <span class="role">(${escapeHtml(c.role || '')})</span></span>`;
     })
     .join('');
@@ -375,7 +375,7 @@ function creditSummaryHtml(groups, title) {
   const person = (p) => {
     const name = p.mbid
       ? `<a href="/artist/${p.mbid}" class="artist-link" data-id="${p.mbid}">${escapeHtml(p.name)}</a>`
-      : escapeHtml(p.name);
+      : `<a href="/name/${encodeURIComponent(p.name)}" class="name-link">${escapeHtml(p.name)}</a>`;
     const roles = p.roles && p.roles.length ? `<span class="role">${escapeHtml(p.roles.join(', '))}</span>` : '';
     const where = p.allTracks ? '<span class="tracks">all tracks</span>'
       : p.tracks > 1 ? `<span class="tracks">${p.tracks} tracks</span>` : '';
@@ -391,6 +391,26 @@ function creditSummaryHtml(groups, title) {
       <h2 class="section-title">${escapeHtml(title)} credits</h2>
       <div class="credit-groups">${groups.map(block).join('')}</div>
     </section>`;
+}
+
+// One role's credits, IMDb filmography style: year, album, artist, what they did.
+function renderCreditTable(el, group, limit = 60) {
+  if (!el || !group) return;
+  const row = (it) => `<tr>
+      <td class="yr">${it.date ? escapeHtml(String(it.date).slice(0, 4)) : '—'}</td>
+      <td><a href="/album/${it.id}" class="album-link">${escapeHtml(it.title || '')}</a>${it.by ? `<div class="by">${escapeHtml(it.by)}</div>` : ''}</td>
+      <td>${escapeHtml((it.roles || []).join(', '))}${(it.songs || []).length ? `<div class="songs">${it.songs.map((x) => escapeHtml(x)).join(' · ')}${it.songCount > it.songs.length ? ` +${it.songCount - it.songs.length} more` : ''}</div>` : ''}</td>
+    </tr>`;
+  const items = group.items || [];
+  el.innerHTML = `<div class="table-scroll"><table class="tracks person-credits">
+      <thead><tr><th>Year</th><th>Album</th><th>${group.key === 'songwriter' ? 'Songs' : 'Role'}</th></tr></thead>
+      <tbody>${items.slice(0, limit).map(row).join('')}</tbody></table></div>
+    ${items.length > limit ? `<div class="load-more-wrap"><button type="button" class="load-more-btn" id="credit-more">Show all ${items.length}</button></div>` : ''}`;
+  for (const link of el.querySelectorAll('.album-link')) {
+    link.addEventListener('click', (e) => { e.preventDefault(); track('credit_click', link.textContent.trim()); navigate(link.getAttribute('href')); });
+  }
+  const more = el.querySelector('#credit-more');
+  if (more) more.addEventListener('click', () => renderCreditTable(el, group, Infinity));
 }
 
 function wireCreditMore(container, groups) {
@@ -1437,21 +1457,19 @@ async function renderArtist(id) {
           ${shareLinksHtml(`${data.name} — on Albumverse`)}
         </div>
       </div>
-      ${(data.appearances || []).length ? `
-        <h2 class="section-title">${escapeHtml(data.name)} credits</h2>
-        <div class="table-scroll"><table class="tracks person-credits">
-          <thead><tr><th>Album</th><th>Artist</th><th>Year</th><th>Role</th></tr></thead>
-          <tbody>${data.appearances.slice().reverse().map((a) => `<tr>
-            <td><a href="/album/${a.id}" class="album-link">${escapeHtml(a.title)}</a></td>
-            <td>${escapeHtml(a.artist || '')}</td><td>${a.date ? escapeHtml(a.date.slice(0, 4)) : ''}</td>
-            <td>${escapeHtml((a.roles || []).join(', '))}${a.tracks > 1 ? ` <span class="role">(${a.tracks} tracks)</span>` : ''}</td></tr>`).join('')}</tbody>
-        </table></div>
+      ${(data.creditGroups || []).length ? `
+        <section class="filmography">
+          <h2 class="section-title">${escapeHtml(data.name)} credits</h2>
+          ${data.creditsComplete || data.type === 'Group' ? '' : '<p class="credits-note">Full career credits are being added from MusicBrainz — check back soon.</p>'}
+          <div class="credit-tabs" role="tablist">${data.creditGroups.map((g, i) => `<button type="button" class="credit-tab${i ? '' : ' on'}" data-i="${i}" role="tab">${escapeHtml(g.label)} <span>${g.count}</span></button>`).join('')}</div>
+          <div id="credit-table"></div>
+        </section>
       ` : ''}
       ${(data.albums || []).length ? `
         <h2 class="section-title">Discography</h2>
         <div class="grid" id="artist-albums-grid"></div>
       ` : ''}
-      ${(data.appearances || []).length ? `
+      ${(data.appearances || []).length && !(data.creditGroups || []).length ? `
         <h2 class="section-title">Appears on</h2>
         <div class="grid" id="artist-appearances-grid"></div>
       ` : ''}
@@ -1470,8 +1488,14 @@ async function renderArtist(id) {
     if (grid) for (const al of data.albums || []) grid.appendChild(albumCard(al));
     const appearGrid = document.getElementById('artist-appearances-grid');
     if (appearGrid) for (const al of data.appearances || []) appearGrid.appendChild(albumCard(al));
-    for (const link of artistEl.querySelectorAll('.album-link')) {
-      link.addEventListener('click', (e) => { e.preventDefault(); track('credit_click', link.textContent.trim()); navigate(link.getAttribute('href')); });
+    if ((data.creditGroups || []).length) {
+      const tabs = artistEl.querySelectorAll('.credit-tab');
+      const show = (i) => {
+        tabs.forEach((t) => t.classList.toggle('on', Number(t.dataset.i) === i));
+        renderCreditTable(document.getElementById('credit-table'), data.creditGroups[i]);
+      };
+      tabs.forEach((t) => t.addEventListener('click', () => show(Number(t.dataset.i))));
+      show(0);
     }
     wireShareLinks(artistEl);
     loadSimilarArtists(data.id);
@@ -2144,7 +2168,7 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest('a, .copy-link-btn');
   if (!a) return;
   if (a.matches('.share-link, .copy-link-btn')) return track('share', a.textContent.trim());
-  if (a.closest('.credit-summary, .credits-wrap, table.tracks') && a.matches('.artist-link')) return track('credit_click', a.textContent.trim());
+  if (a.closest('.credit-summary, .credits-wrap, table.tracks') && a.matches('.artist-link, .name-link')) return track('credit_click', a.textContent.trim());
   const href = a.getAttribute('href') || '';
   if (/^https?:\/\//.test(href) && !href.includes(location.host)) {
     let host = '';
