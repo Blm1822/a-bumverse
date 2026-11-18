@@ -6,14 +6,14 @@
 // its original album, skipping compilations, live albums and remixes:
 //   release   -> release search by id        -> its release group
 //   recording -> recording search by id      -> earliest original album it's on
-//   work      -> recording search by work id -> matched by title -> earliest original album
-// Batched (~40 ids per search), so even someone with 800+ credits is ~25 requests.
+//   work      -> recordings of that song (browse) -> earliest original album
+// Releases and recordings are batched (~40 ids per search); songs are one request each
+// (capped at 150), so a prolific songwriter takes a few minutes in the background.
 
 import { mbFetch } from './mb.js';
 
 const MB_ROOT = 'https://musicbrainz.org/ws/2';
 const BATCH = 40;
-const WORK_BATCH = 4;
 
 // ---------------------------------------------------------------- roles
 const CATEGORY_RULES = [
@@ -59,7 +59,7 @@ function rgOf(release) {
     title: g.title || release.title,
     type: g['primary-type'] || null,
     secondary: g['secondary-types'] || [],
-    date: release.date || null,
+    date: g['first-release-date'] || release.date || null,
   };
 }
 
@@ -81,19 +81,20 @@ const norm = (s) => String(s || '').toLowerCase().replace(/\(.*?\)|\[.*?\]/g, ''
 
 // ---------------------------------------------------------------- turning MB responses into rows
 // Pure: relations (artist lookup) + search results -> credit rows. Tested with fixtures.
-export function buildRows({ relations, releasesById, recordingsById, recordingsByWorkTitle }) {
+export function buildRows({ relations, releasesById, recordingsById, recordingsByWork = new Map() }) {
   // An album's year = the earliest date we saw for any release of it (search results are often
   // reissues: a 2018 pressing of a 1984 album still belongs to the 1984 release group).
   const firstDate = new Map();
   const see = (rel) => {
     const g = rel?.['release-group'];
-    if (!g?.id || !rel.date) return;
+    const d = g?.['first-release-date'] || rel?.date;
+    if (!g?.id || !d) return;
     const cur = firstDate.get(g.id);
-    if (!cur || String(rel.date) < String(cur)) firstDate.set(g.id, rel.date);
+    if (!cur || String(d) < String(cur)) firstDate.set(g.id, d);
   };
   for (const r of releasesById.values()) see(r);
   for (const r of recordingsById.values()) for (const x of r.releases || []) see(x);
-  for (const list of recordingsByWorkTitle.values()) for (const r of list) for (const x of r.releases || []) see(x);
+  for (const list of recordingsByWork.values()) for (const r of list) for (const x of r.releases || []) see(x);
   const rows = [];
   for (const rel of relations || []) {
     const target = rel['target-type'];
@@ -114,7 +115,7 @@ export function buildRows({ relations, releasesById, recordingsById, recordingsB
       by = r ? creditName(r['artist-credit']) : '';
     } else if (target === 'work') {
       song = rel.work?.title || null;
-      const recs = recordingsByWorkTitle.get(norm(song)) || [];
+      const recs = recordingsByWork.get(rel.work?.id) || [];
       let best = null;
       for (const r of recs) {
         const pick = pickOriginal(r.releases);
@@ -156,7 +157,7 @@ async function search(entity, field, ids) {
 }
 
 // limits keep one prolific person from monopolising the shared MusicBrainz queue
-export async function fetchPersonCredits(mbid, { maxRecordings = 600, maxWorks = 300 } = {}) {
+export async function fetchPersonCredits(mbid, { maxRecordings = 600, maxWorks = 150 } = {}) {
   const lookup = await mbFetch(`${MB_ROOT}/artist/${mbid}?inc=release-rels+recording-rels+work-rels&fmt=json`);
   const relations = lookup.relations || [];
   const ids = (t, key) => [...new Set(relations.filter((r) => r['target-type'] === t).map((r) => r[key]?.id).filter(Boolean))];
@@ -168,18 +169,15 @@ export async function fetchPersonCredits(mbid, { maxRecordings = 600, maxWorks =
   for (const c of chunks(releaseIds, BATCH)) for (const r of await search('release', 'reid', c)) releasesById.set(r.id, r);
   const recordingsById = new Map();
   for (const c of chunks(recordingIds, BATCH)) for (const r of await search('recording', 'rid', c)) recordingsById.set(r.id, r);
-  const recordingsByWorkTitle = new Map();
-  // Small batches: a hit song can have hundreds of recordings (covers, karaoke), which would
-  // crowd every other song in the batch out of the 100 results.
-  for (const c of chunks(workIds, WORK_BATCH)) {
-    for (const r of await search('recording', 'wid', c)) {
-      const k = norm(r.title);
-      if (!recordingsByWorkTitle.has(k)) recordingsByWorkTitle.set(k, []);
-      recordingsByWorkTitle.get(k).push(r);
-    }
+  // Songs: one browse request per work ("recordings of this song", with their albums).
+  // MusicBrainz search can't filter recordings by work id, so this can't be batched.
+  const recordingsByWork = new Map();
+  for (const wid of workIds) {
+    const data = await mbFetch(`${MB_ROOT}/recording?work=${wid}&inc=releases+release-groups&limit=25&fmt=json`);
+    recordingsByWork.set(wid, data.recordings || []);
   }
   return {
-    rows: buildRows({ relations, releasesById, recordingsById, recordingsByWorkTitle }),
+    rows: buildRows({ relations, releasesById, recordingsById, recordingsByWork }),
     relationCount: relations.length,
     type: lookup.type || null,
     name: lookup.name,

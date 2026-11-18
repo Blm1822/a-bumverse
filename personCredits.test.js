@@ -40,7 +40,7 @@ test('builds rows from releases, recordings and works, deduplicated', () => {
     relations,
     releasesById: new Map([['r1', r1]]),
     recordingsById: new Map([['rec1', rec1]]),
-    recordingsByWorkTitle: new Map([['take it away', [rec1]]]),
+    recordingsByWork: new Map([['w1', [rec1]]]),
   });
   assert.equal(rows.length, 3);
   const prod = rows.find((r) => r.category === 'producer');
@@ -59,7 +59,6 @@ test('album year is the earliest release seen for that release group', () => {
                 { 'target-type': 'recording', type: 'producer', attributes: [], recording: { id: 'rec', title: 'Drive' } }],
     releasesById: new Map([['r2018', reissue]]),
     recordingsById: new Map([['rec', { id: 'rec', title: 'Drive', releases: [reissue, original] }]]),
-    recordingsByWorkTitle: new Map(),
   });
   assert.ok(rows.every((r) => r.date === '1984-03-13'), JSON.stringify(rows));
 });
