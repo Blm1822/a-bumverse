@@ -990,6 +990,56 @@ export function nextPeopleToEnrich(limit = 20) {
   ).all(limit);
 }
 
+// ---- credits-themed Shorts ----
+// People with a real story: 6+ albums as producer/songwriter/etc. across 3+ different artists,
+// not featured yet; the ones search engines and visitors look at most come first.
+export function peopleForShort(limit = 10) {
+  return db.prepare(
+    `WITH views AS (
+       SELECT substr(path, 9) AS mbid, COUNT(*) AS n FROM page_views
+       WHERE path LIKE '/artist/%' AND created_at >= datetime('now', '-60 days') GROUP BY path
+     ), stats AS (
+       SELECT artist_mbid, COUNT(DISTINCT rg_mbid) AS albums, COUNT(DISTINCT by_artist) AS acts
+       FROM person_credits GROUP BY artist_mbid
+     )
+     SELECT a.mbid AS id, a.name, s.albums, s.acts, COALESCE(v.n, 0) AS views
+     FROM stats s JOIN artists a ON a.mbid = s.artist_mbid
+     LEFT JOIN views v ON v.mbid = s.artist_mbid
+     WHERE s.albums >= 6 AND s.acts >= 3
+       AND NOT EXISTS (SELECT 1 FROM social_posts sp WHERE sp.content_type = 'person_credits_yt' AND sp.item_id = a.mbid)
+     ORDER BY views DESC, s.albums DESC
+     LIMIT ?`
+  ).all(limit);
+}
+
+// Albums with cover art and enough credits to name names, not featured yet.
+export function albumsForCreditsShort(limit = 10) {
+  return db.prepare(
+    `WITH views AS (
+       SELECT substr(path, 8) AS mbid, COUNT(*) AS n FROM page_views
+       WHERE path LIKE '/album/%' AND created_at >= datetime('now', '-60 days') GROUP BY path
+     ), people AS (
+       SELECT t.album_mbid AS mbid, COUNT(DISTINCT tc.name) AS n FROM track_credits tc
+       JOIN tracks t ON t.id = tc.track_id GROUP BY t.album_mbid
+     )
+     SELECT al.mbid AS id, COALESCE(v.n, 0) AS views, p.n AS people FROM albums al
+     JOIN people p ON p.mbid = al.mbid
+     LEFT JOIN views v ON v.mbid = al.mbid
+     WHERE al.cover_art_url IS NOT NULL AND p.n >= 4
+       AND EXISTS (SELECT 1 FROM album_credits ac WHERE ac.album_mbid = al.mbid AND ac.role LIKE '%produc%')
+       AND NOT EXISTS (SELECT 1 FROM social_posts sp WHERE sp.content_type = 'album_credits_yt' AND sp.item_id = al.mbid)
+     ORDER BY views DESC, p.n DESC
+     LIMIT ?`
+  ).all(limit);
+}
+
+export function artistImages(mbids, limit = 3) {
+  if (!mbids.length) return [];
+  return db.prepare(
+    `SELECT wiki_image_url AS url FROM artists WHERE mbid IN (${mbids.map(() => '?').join(',')}) AND wiki_image_url IS NOT NULL LIMIT ?`
+  ).all(...mbids, limit).map((r) => r.url);
+}
+
 export function findArtistByExactName(name) {
   return db.prepare('SELECT mbid as id, name FROM artists WHERE name = ? COLLATE NOCASE LIMIT 2').all(name);
 }
@@ -1024,6 +1074,7 @@ export function goalSummary(days = 30, host = 'albumverse.com') {
        SUM(CASE WHEN ${SOCIAL_SQL} THEN 1 ELSE 0 END) AS social,
        SUM(CASE WHEN referrer IS NULL OR referrer = '' THEN 1 ELSE 0 END) AS direct,
        SUM(CASE WHEN referrer LIKE ? THEN 1 ELSE 0 END) AS internal,
+       SUM(CASE WHEN query LIKE '%"ref":"yt"%' OR referrer LIKE '%youtube.com%' OR referrer LIKE '%youtu.be%' THEN 1 ELSE 0 END) AS youtube,
        COUNT(*) AS total
      FROM page_views WHERE ${human}`
   ).get(`%${host}%`);
@@ -1043,7 +1094,7 @@ export function goalSummary(days = 30, host = 'albumverse.com') {
   else if (organic >= 1500) verdict = 'change';
   else if (organic < 750) verdict = 'freeze (if this holds at the end of the test)';
   return {
-    days, organic, social, direct, internal, other: Math.max(0, n(landings.total) - organic - social - direct - internal),
+    days, organic, social, direct, internal, youtube: n(landings.youtube), other: Math.max(0, n(landings.total) - organic - social - direct - internal),
     totalLandings: n(landings.total), actions: byType, totalActions, organicPages, topOutbound, verdict,
     targets: { organic: 1500, actions: 100, freezeBelow: 750 },
   };

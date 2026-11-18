@@ -149,7 +149,11 @@ function logView(req, extraQuery) {
   try {
     logPageView({
       path: req.path,
-      query: extraQuery !== undefined ? extraQuery : (Object.keys(req.query).length ? JSON.stringify(req.query) : null),
+      // keep a ?ref= tag (e.g. ref=yt from YouTube links) even on routes that log no query
+      query: extraQuery !== undefined && extraQuery !== null ? extraQuery
+        : req.query.ref ? JSON.stringify({ ref: String(req.query.ref).slice(0, 20) })
+        : extraQuery === null ? null
+        : (Object.keys(req.query).length ? JSON.stringify(req.query) : null),
       referrer: req.get('referer') || null,
       userAgent: req.get('user-agent') || null,
     });
@@ -841,7 +845,10 @@ function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 
   let html = fs.readFileSync(indexHtmlPath, 'utf8');
   const safeTitle = escapeAttr(title || 'Albumverse');
   const safeDesc = escapeAttr(description || 'A music database - search albums, see who wrote and performed every track.');
-  const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+  // canonical/og:url without tracking tags, so ?ref=yt links don't look like separate pages to Google
+  const clean = new URL(req.originalUrl, 'http://x');
+  clean.searchParams.delete('ref');
+  const url = `${req.protocol}://${req.get('host')}${clean.pathname}${clean.search}`;
   const tags = [
     `<link rel="canonical" href="${escapeAttr(url)}" />`,
     `<meta property="og:title" content="${safeTitle}" />`,
@@ -1192,7 +1199,7 @@ app.get('/analytics', requireAnalyticsAuth, (req, res) => {
     </div>
     <p style="color: #6b6584; font-size: 12px; margin-top: 10px;">
       Keep: 1,500+ search visits and 100+ actions. Change: visits but under 100 actions. Freeze: under 750 search visits.
-      Landings by source: search ${g.organic}, social ${g.social}, direct ${g.direct}, internal ${g.internal}, other ${g.other}.
+      Landings by source: search ${g.organic}, social ${g.social}, YouTube ${g.youtube}, direct ${g.direct}, internal ${g.internal}, other ${g.other}.
       Actions: ${Object.entries(g.actions).map(([k, v]) => `${escapeAttr(k)} ${v}`).join(', ') || 'none yet'}.
     </p>
     <h2>Top landing pages from search (30 days)</h2>
