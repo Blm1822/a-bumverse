@@ -6,14 +6,21 @@
 // running JavaScript, and the page's meta description.
 
 const GROUPS = [
+  { key: 'other', label: 'Other credits', re: /coordinat|management|a&r|legal|booking/i },
   { key: 'producers', label: 'Produced by', re: /produc/i },
   { key: 'writers', label: 'Written by', re: /writ|lyric|compos|music by|songwriter/i },
   { key: 'engineering', label: 'Recording, mixing & mastering', re: /engineer|mix|master|record|remaster/i },
   { key: 'arrangement', label: 'Arrangement & conducting', re: /arrang|conduct|orchestrat/i },
   { key: 'artwork', label: 'Artwork & design', re: /photo|design|art direction|artwork|layout|illustrat|cover|sleeve|liner/i },
-  { key: 'other', label: 'Other credits', re: /management|a&r|coordinat|executive|legal|booking/i },
 ];
 const MUSICIANS = { key: 'musicians', label: 'Musicians' };
+
+// Assistant / executive / associate credits rank after the main ones ("producer" before
+// "producer [assistant]"), and aren't the names the description leads with.
+const MINOR = /assist|executive|associate|additional|co-|coordinat/i;
+function minor(roles) {
+  return roles.length && roles.every((r) => MINOR.test(r)) ? 1 : 0;
+}
 
 function groupFor(role, fallback) {
   for (const g of GROUPS) if (g.re.test(role || '')) return g;
@@ -55,14 +62,16 @@ export function summarizeCredits(album) {
           tracks: p.tracks.size,
           allTracks: nTracks > 1 && p.tracks.size === nTracks,
         }))
-        .sort((a, b) => b.tracks - a.tracks || a.name.localeCompare(b.name));
+        .sort((a, b) => minor(a.roles) - minor(b.roles) || b.tracks - a.tracks || a.name.localeCompare(b.name));
       return { key: k, label: g.label, people };
     });
 }
 
 function names(groups, key, n) {
   const g = groups.find((x) => x.key === key);
-  return g ? g.people.slice(0, n).map((p) => p.name) : [];
+  if (!g) return [];
+  const main = g.people.filter((p) => !minor(p.roles));
+  return (main.length ? main : g.people).slice(0, n).map((p) => p.name);
 }
 
 function list(xs) {
@@ -135,7 +144,7 @@ const ROLE_ALIASES = [
 ];
 
 export function normalizeRole(role) {
-  const r = String(role || '').trim().toLowerCase().replace(/\s*\(.*\)$/, '');
+  const r = String(role || '').trim().toLowerCase().replace(/\s*[([].*[)\]]$/, '');
   for (const [re, label] of ROLE_ALIASES) if (re.test(r)) return label;
   return r;
 }
@@ -168,12 +177,16 @@ const isGroup = (artist) => String(artist?.type || '').toLowerCase() === 'group'
 
 export function personTitle(artist, s = personSummary(artist)) {
   if (isGroup(artist)) return `${artist.name}: Discography & Album Credits`;
-  const t = s.roleLine ? `${artist.name}: ${s.roleLine} · Credits & Albums` : `${artist.name}: Credits & Albums`;
-  return t.length <= 70 ? t : `${artist.name}: Credits & Albums`;
+  const tries = [];
+  if (s.roleLine) tries.push(`${artist.name}: ${s.roleLine} · Credits & Albums`);
+  if (s.topRoles.length) tries.push(`${artist.name}: ${s.topRoles.slice(0, 2).join(', ')} · Credits & Albums`);
+  if (s.topRoles.length) tries.push(`${artist.name}: ${s.topRoles[0]} · Credits & Albums`);
+  tries.push(`${artist.name}: Credits & Albums`);
+  return tries.find((t) => t.length <= 70) || tries[tries.length - 1];
 }
 
 function titlesOf(list, n) {
-  return list.slice().reverse().slice(0, n).map((a) => a.title);
+  return [...new Set(list.slice().reverse().map((a) => a.title))].slice(0, n);
 }
 
 export function personDescription(artist, s = personSummary(artist), max = 158) {
@@ -186,7 +199,8 @@ export function personDescription(artist, s = personSummary(artist), max = 158) 
     const all = [...(artist.appearances || []), ...(artist.albums || [])];
     const t = titlesOf(all, 3);
     const n = s.nCredits + s.nAlbums;
-    const which = t.length === n ? `on ${list(t)}` : `on ${n} albums including ${list(t)}`;
+    const unique = new Set(all.map((a) => a.title)).size;
+    const which = t.length === unique && unique === n ? `on ${list(t)}` : `on ${n} album${n === 1 ? '' : 's'} including ${list(t)}`;
     d = `${name}${s.roleLine ? ` (${s.roleLine})` : ''}: credited ${which}. Every album ${name} wrote, produced or played on, with roles.`;
   } else {
     d = artist.bio ? String(artist.bio) : `${name}: credits and albums on Albumverse.`;

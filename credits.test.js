@@ -96,3 +96,24 @@ test('roles are normalized and person HTML lists credits', () => {
   assert.match(h, /<h1>Quinn Allman<\/h1>/);
   assert.match(h, /<a href="\/album\/a2">In Love and Death<\/a> by The Used \(2004\): guitar, composer/);
 });
+
+test('main producers lead; assistants and coordinators do not', () => {
+  const a = { title: 'R', artist: 'K', tracks: [], credits: [
+    { name: 'Bobby Sparks', role: 'producer [assistant]' }, { name: 'Jessie Hurst', role: 'coordinator [production]' },
+    { name: 'Kirk Franklin', role: 'producer' }, { name: 'Zed', role: 'executive-producer' } ] };
+  const g = summarizeCredits(a);
+  const prod = g.find((x) => x.key === 'producers').people.map((p) => p.name);
+  assert.equal(prod[0], 'Kirk Franklin');
+  assert.ok(!prod.includes('Jessie Hurst'));
+  assert.match(creditsDescription(a), /Produced by Kirk Franklin\./);
+});
+
+test('repeated titles are not listed twice; long role lines shorten the title', () => {
+  const p = { name: 'Ali B', type: 'Person', albums: [{ id: '1', title: 'Bonkano' }, { id: '2', title: 'Bonkano' }], appearances: [] };
+  assert.equal(personDescription(p).split('Bonkano').length - 1, 1);
+  assert.match(personDescription(p), /credited on 2 albums including Bonkano/);
+  const rob = { name: 'Rob Bisel', type: 'Person', albums: [], appearances: [
+    { id: 'a', title: 'X', artist: 'Neil Young, Promise of the Real', roles: ['engineer [assistant]', 'writer'] }] };
+  assert.equal(personTitle(rob), 'Rob Bisel: engineer, songwriter · Credits & Albums');
+  assert.equal(normalizeRole('engineer [assistant]'), 'engineer');
+});
