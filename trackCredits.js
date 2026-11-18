@@ -137,7 +137,7 @@ export async function refreshAlbumSongCredits(mbid) {
     // Writers are already saved; skip the per-song work lookups.
     const detail = await getAlbumDetail(mbid, { works: false });
     const { albumCredits, gained } = await addDiscogsCredits(detail);
-    const n = saveSongCredits(mbid, detail.tracks, albumCredits);
+    const n = saveSongCredits(mbid, detail.tracks, albumCredits, detail.releaseCount);
     return { songs: n, gained };
   } catch (err) {
     // Not marked done: skipped for the rest of this run, tried again after a restart.

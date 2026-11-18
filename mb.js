@@ -63,6 +63,7 @@ export async function searchReleaseGroups(query, limit = 15) {
     type: rg['primary-type'] || 'Release',
     date: rg['first-release-date'] || '',
     artist: (rg['artist-credit'] || []).map((a) => a.name).join(', '),
+    releaseCount: rg.count || null,
   }));
 }
 
@@ -225,5 +226,8 @@ export async function getAlbumDetail(rgId, { works = true } = {}) {
     genres,
     tracks,
     releaseCredits,
+    // A lookup lists at most 25 releases, so this tops out at 25: enough to tell
+    // a one-off tribute record from a classic that's been reissued many times.
+    releaseCount: releases.length,
   };
 }
