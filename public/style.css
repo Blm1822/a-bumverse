@@ -954,3 +954,8 @@ a.credit-tab { text-decoration: none; display: inline-block; }
 .more-credits summary { display: inline; cursor: pointer; color: var(--accent, #c9a227); font-size: 0.85em; list-style: none; }
 .more-credits summary::-webkit-details-marker { display: none; }
 .more-credits[open] summary { display: none; }
+
+/* Person page: Songs tab */
+.song-filter { width: 100%; max-width: 420px; margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; }
+.song-credits .song-title { font-weight: 600; }
+.song-credits .also-on { color: var(--muted); font-size: 0.85em; }
