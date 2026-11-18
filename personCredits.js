@@ -6,7 +6,7 @@
 // its original album, skipping compilations, live albums and remixes:
 //   release   -> release search by id        -> its release group
 //   recording -> recording search by id      -> earliest original album it's on
-//   work      -> recordings of that song (browse) -> earliest original album
+//   work      -> work lookup (its recordings) -> recording search -> earliest original album
 // Releases and recordings are batched (~40 ids per search); songs are one request each
 // (capped at 150), so a prolific songwriter takes a few minutes in the background.
 
@@ -169,13 +169,20 @@ export async function fetchPersonCredits(mbid, { maxRecordings = 600, maxWorks =
   for (const c of chunks(releaseIds, BATCH)) for (const r of await search('release', 'reid', c)) releasesById.set(r.id, r);
   const recordingsById = new Map();
   for (const c of chunks(recordingIds, BATCH)) for (const r of await search('recording', 'rid', c)) recordingsById.set(r.id, r);
-  // Songs: one browse request per work ("recordings of this song", with their albums).
-  // MusicBrainz search can't filter recordings by work id, so this can't be batched.
-  const recordingsByWork = new Map();
+  // Songs: one lookup per work for its recordings (confirmed supported), then those
+  // recordings' albums via the same batched search as above.
+  const recIdsByWork = new Map();
+  const needed = new Set();
   for (const wid of workIds) {
-    const data = await mbFetch(`${MB_ROOT}/recording?work=${wid}&inc=releases+release-groups&limit=25&fmt=json`);
-    recordingsByWork.set(wid, data.recordings || []);
+    const w = await mbFetch(`${MB_ROOT}/work/${wid}?inc=recording-rels&fmt=json`);
+    const recIds = (w.relations || []).filter((r) => r['target-type'] === 'recording' && r.recording?.id)
+      .map((r) => r.recording.id).slice(0, 8);
+    recIdsByWork.set(wid, recIds);
+    for (const id of recIds) if (!recordingsById.has(id)) needed.add(id);
   }
+  for (const c of chunks([...needed], BATCH)) for (const r of await search('recording', 'rid', c)) recordingsById.set(r.id, r);
+  const recordingsByWork = new Map();
+  for (const [wid, ids] of recIdsByWork) recordingsByWork.set(wid, ids.map((id) => recordingsById.get(id)).filter(Boolean));
   return {
     rows: buildRows({ relations, releasesById, recordingsById, recordingsByWork }),
     relationCount: relations.length,
