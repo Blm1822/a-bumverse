@@ -19,9 +19,9 @@
 // cap, so re-running the same file later keeps adding up to N more.
 
 import fs from 'node:fs';
-import { upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, albumExists, stats, setArtistLifespan } from '../db.js';
+import { upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, markSongCredits, albumExists, stats, setArtistLifespan } from '../db.js';
 import { searchArtist, getArtistReleaseGroups, getAlbumDetail, getArtistDetail } from '../mb.js';
-import { findDiscogsCredits } from '../discogs.js';
+import { addDiscogsCredits } from '../trackCredits.js';
 
 const EXCLUDED_SECONDARY_TYPES = new Set([
   'Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street',
@@ -70,9 +70,10 @@ async function importArtist(name, { includeAll, types, maxPerArtist }) {
     }
     try {
       const detail = await getAlbumDetail(rg.id);
+      const { albumCredits: discogsCredits } = await addDiscogsCredits(detail);
       upsertAlbum(detail, [artist.mbid]);
-      const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
       if (discogsCredits.length) setAlbumCredits(detail.id, discogsCredits);
+      markSongCredits(detail.id);
       markEnriched(detail.id);
       added++;
       console.log(`  + ${detail.title} (${detail.date || 'n/a'}) - ${detail.tracks.length} tracks${discogsCredits.length ? `, ${discogsCredits.length} Discogs credits` : ''}`);

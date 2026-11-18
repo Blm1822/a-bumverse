@@ -5,12 +5,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames, browsePeople, countPeople, PEOPLE_ROLES } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, markSongCredits, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames, browsePeople, countPeople, PEOPLE_ROLES } from './db.js';
 import { buildHome } from './home.js';
 import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups, knownFor } from './credits.js';
 import { searchReleaseGroups, getAlbumDetail, searchArtist } from './mb.js';
 import { prioritizePerson, startPersonEnricher } from './personCredits.js';
-import { findDiscogsCredits } from './discogs.js';
+import { addDiscogsCredits, prioritizeAlbum, startSongCreditsRefresh } from './trackCredits.js';
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
@@ -432,7 +432,10 @@ app.get('/api/album/:mbid', async (req, res) => {
   }
 
   const cached = getAlbumLocal(mbid);
-  if (cached) return res.json(withCreditSummary(cached));
+  if (cached) {
+    prioritizeAlbum(mbid);
+    return res.json(withCreditSummary(cached));
+  }
 
   // Not in our db yet - this is the "funnel": fetch it live from MusicBrainz,
   // save it permanently, and serve it. Next person to look this up gets it instantly.
@@ -443,10 +446,12 @@ app.get('/api/album/:mbid', async (req, res) => {
       upsertArtist({ mbid: credit.mbid, name: credit.name, disambiguation: null });
       artistMbids.push(credit.mbid);
     }
+    // Discogs per-song credits go into detail.tracks before saving.
+    const { albumCredits } = await addDiscogsCredits(detail);
     upsertAlbum(detail, artistMbids);
-    const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
-    if (discogsCredits.length) setAlbumCredits(mbid, discogsCredits);
+    if (albumCredits.length) setAlbumCredits(mbid, albumCredits);
     markEnriched(mbid);
+    markSongCredits(mbid);
     res.json(withCreditSummary(getAlbumLocal(mbid)));
   } catch (err) {
     console.error('live album lookup failed', mbid, err.message);
@@ -1406,6 +1411,7 @@ app.listen(PORT, () => {
   // Paused by default (council, Nov 2026): it needs a manual YouTube re-login every week and
   // has no measured return. Set YOUTUBE_SHORTS=on in Railway to turn it back on.
   startPersonEnricher();
+  startSongCreditsRefresh();
   if (process.env.YOUTUBE_SHORTS === 'on') startYoutubePoster();
   else console.log('YouTube Shorts poster paused (set YOUTUBE_SHORTS=on to enable)');
   startWikidataDeathCheck();

@@ -226,6 +226,10 @@ for (const col of ['type', 'born_date', 'died_date', 'life_span_checked_at']) {
   if (!artistColumns.includes(col)) db.exec(`ALTER TABLE artists ADD COLUMN ${col} TEXT;`);
 }
 
+// Per-song musician credits (trackCredits.js): NULL means the album hasn't had
+// its song credits refreshed yet.
+if (!albumColumns.includes('song_credits_at')) db.exec('ALTER TABLE albums ADD COLUMN song_credits_at TEXT;');
+
 // Migration for DBs created before password-reset recovery codes existed -
 // those users simply have none until they sign in and generate one (see
 // setRecoveryCodeHash), same "NULL means never set up" pattern as bio above.
@@ -508,6 +512,82 @@ export function albumsNeedingEnrichment(limit = 50) {
        LIMIT ?`
     )
     .all(limit);
+}
+
+// Albums whose per-song credits haven't been refreshed, most-viewed first.
+export function albumsNeedingSongCredits(limit = 50) {
+  return db
+    .prepare(
+      `WITH v AS (
+         SELECT substr(path, 8) AS mbid, COUNT(*) AS n FROM page_views
+         WHERE path LIKE '/album/%' AND is_bot = 0 GROUP BY path
+       )
+       SELECT al.mbid AS id, al.title, COALESCE(v.n, 0) AS views
+       FROM albums al LEFT JOIN v ON v.mbid = al.mbid
+       WHERE al.song_credits_at IS NULL
+       ORDER BY views DESC, al.added_at DESC
+       LIMIT ?`
+    )
+    .all(limit);
+}
+
+export function countAlbumsNeedingSongCredits() {
+  return db.prepare('SELECT COUNT(*) AS n FROM albums WHERE song_credits_at IS NULL').get().n;
+}
+
+// undefined: no such album; null: not refreshed yet; otherwise the time.
+export function albumSongCreditsAt(mbid) {
+  const row = db.prepare('SELECT song_credits_at AS at FROM albums WHERE mbid = ?').get(mbid);
+  return row ? row.at : undefined;
+}
+
+export function markSongCredits(mbid) {
+  db.prepare("UPDATE albums SET song_credits_at = datetime('now') WHERE mbid = ?").run(mbid);
+}
+
+// Replace each saved song's musicians with a fresh list (fetched tracks are
+// matched to saved ones by recording id, then by position). Saved writers stay;
+// new writers only fill songs that had none. Album-wide credits are replaced
+// when the fresh list has any. Returns how many songs now list a musician.
+export function saveSongCredits(albumMbid, tracks, albumCredits = []) {
+  const saved = db.prepare('SELECT id, position, recording_mbid AS rec FROM tracks WHERE album_mbid = ?').all(albumMbid);
+  const byRec = new Map(saved.filter((t) => t.rec).map((t) => [t.rec, t.id]));
+  const byPos = new Map(saved.map((t) => [Number(t.position), t.id]));
+  const delPerf = db.prepare("DELETE FROM track_credits WHERE track_id = ? AND kind = 'performer'");
+  const hasWriter = db.prepare("SELECT 1 FROM track_credits WHERE track_id = ? AND kind = 'writer' LIMIT 1");
+  const insert = db.prepare('INSERT INTO track_credits (track_id, kind, name, artist_mbid, role) VALUES (?, ?, ?, ?, ?)');
+  const stub = db.prepare('INSERT OR IGNORE INTO artists (mbid, name) VALUES (?, ?)');
+  let withMusicians = 0;
+  db.exec('BEGIN');
+  try {
+    for (const t of tracks || []) {
+      const id = (t.recordingMbid && byRec.get(t.recordingMbid)) || byPos.get(Number(t.position));
+      if (!id) continue;
+      delPerf.run(id);
+      for (const p of t.performers || []) {
+        insert.run(id, 'performer', p.name, p.mbid || null, p.role || null);
+        if (p.mbid) stub.run(p.mbid, p.name);
+      }
+      if ((t.performers || []).length) withMusicians++;
+      if (!hasWriter.get(id)) {
+        for (const w of t.writers || []) {
+          insert.run(id, 'writer', w.name, w.mbid || null, w.role || null);
+          if (w.mbid) stub.run(w.mbid, w.name);
+        }
+      }
+    }
+    if (albumCredits.length) {
+      db.prepare('DELETE FROM album_credits WHERE album_mbid = ?').run(albumMbid);
+      const ins = db.prepare('INSERT INTO album_credits (album_mbid, name, role, source) VALUES (?, ?, ?, ?)');
+      for (const c of albumCredits) ins.run(albumMbid, c.name, c.role, c.source || 'discogs');
+    }
+    db.prepare("UPDATE albums SET song_credits_at = datetime('now') WHERE mbid = ?").run(albumMbid);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return withMusicians;
 }
 
 export function countAlbumsNeedingEnrichment() {

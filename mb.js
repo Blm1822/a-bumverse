@@ -112,9 +112,18 @@ export async function getArtistReleaseGroups(artistMbid) {
   return groups;
 }
 
+// Readable role for a MusicBrainz artist relationship: instrument and vocal
+// relationships are named by their attributes ("guitar", "lead vocals"); other
+// types keep the type ("producer", or "executive producer" with an attribute).
+export function relRole(rel) {
+  const attrs = rel.attributes || [];
+  if (rel.type === 'instrument' || rel.type === 'vocal') return attrs.length ? attrs.join(', ') : rel.type;
+  return attrs.length ? `${attrs.join(', ')} ${rel.type}` : rel.type;
+}
+
 // Pick a representative release for a release-group and pull its full
 // tracklist + credits (performers directly, writers via each track's work).
-export async function getAlbumDetail(rgId) {
+export async function getAlbumDetail(rgId, { works = true } = {}) {
   const rgUrl = `${MB_ROOT}/release-group/${rgId}?inc=releases+artist-credits+genres&fmt=json`;
   const rg = await mbFetch(rgUrl);
 
@@ -133,7 +142,9 @@ export async function getAlbumDetail(rgId) {
 
   const relUrl =
     `${MB_ROOT}/release/${chosen.id}` +
-    `?inc=recordings+artist-credits+recording-level-rels+work-rels+work-level-rels+labels&fmt=json`;
+    // artist-rels is what brings in who played on each recording (instrument,
+    // vocal, producer...). Without it, recording-level-rels only returned works.
+    `?inc=recordings+artist-credits+artist-rels+recording-level-rels+work-rels+work-level-rels+labels&fmt=json`;
   const release = await mbFetch(relUrl);
 
   const tracks = [];
@@ -149,7 +160,7 @@ export async function getAlbumDetail(rgId) {
           performers.push({
             name: rel.artist.name,
             mbid: rel.artist.id,
-            role: rel.attributes && rel.attributes.length ? rel.attributes.join(', ') : rel.type,
+            role: relRole(rel),
           });
         } else if (rel['target-type'] === 'work' && rel.work) {
           workRef = { id: rel.work.id, title: rel.work.title };
@@ -170,7 +181,7 @@ export async function getAlbumDetail(rgId) {
   }
 
   const workCredits = {};
-  for (const workId of workIds) {
+  for (const workId of works ? workIds : []) {
     try {
       const workUrl = `${MB_ROOT}/work/${workId}?inc=artist-rels&fmt=json`;
       const work = await mbFetch(workUrl);
@@ -191,6 +202,15 @@ export async function getAlbumDetail(rgId) {
     delete t.workId;
   }
 
+  // Credits on the release as a whole (often producer, engineers, the band).
+  const releaseCredits = (release.relations || [])
+    .filter((r) => r['target-type'] === 'artist' && r.artist)
+    .map((r) => ({
+      name: r.artist.name,
+      role: relRole(r),
+      source: 'musicbrainz',
+    }));
+
   return {
     id: rg.id,
     title: rg.title,
@@ -204,5 +224,6 @@ export async function getAlbumDetail(rgId) {
     coverArtUrl: `${CAA_ROOT}/release-group/${rg.id}/front-250`,
     genres,
     tracks,
+    releaseCredits,
   };
 }

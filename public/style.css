@@ -948,3 +948,9 @@ body.is-home #search-form { display: none; }
 .footer-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 20px; margin-bottom: 10px; }
 .site-footer p { margin: 0; }
 a.credit-tab { text-decoration: none; display: inline-block; }
+
+/* Song-by-song musicians: long lists fold after six names */
+.more-credits { display: inline; }
+.more-credits summary { display: inline; cursor: pointer; color: var(--accent, #c9a227); font-size: 0.85em; list-style: none; }
+.more-credits summary::-webkit-details-marker { display: none; }
+.more-credits[open] summary { display: none; }
