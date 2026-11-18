@@ -164,6 +164,17 @@ CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_credits_track ON track_credits(track_id);
+-- Things a visitor did on a page (the "meaningful actions" in the 60-day test):
+-- search, credit_click, outbound (listen/merch/tickets links), share.
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL,
+  path TEXT,
+  detail TEXT,
+  is_bot INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_pageviews_created ON page_views(created_at);
 CREATE INDEX IF NOT EXISTS idx_pageviews_path ON page_views(path);
 CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre);
@@ -902,6 +913,61 @@ export function logPageView({ path: p, query, referrer, userAgent }) {
   );
 }
 
+export const EVENT_TYPES = new Set(['search', 'credit_click', 'outbound', 'share']);
+
+export function logEvent({ type, path: p, detail, userAgent }) {
+  if (!EVENT_TYPES.has(type)) return false;
+  db.prepare('INSERT INTO events (type, path, detail, is_bot) VALUES (?, ?, ?, ?)').run(
+    type, p ? String(p).slice(0, 300) : null, detail ? String(detail).slice(0, 300) : null,
+    isBotRequest(userAgent, null) ? 1 : 0
+  );
+  return true;
+}
+
+// Search engines that send a referrer. Google sends just "https://www.google.com/".
+const ORGANIC_SQL = `(referrer LIKE '%://www.google.%' OR referrer LIKE '%://google.%' OR referrer LIKE '%://www.bing.com%'
+  OR referrer LIKE '%duckduckgo.com%' OR referrer LIKE '%search.yahoo.com%' OR referrer LIKE '%ecosia.org%'
+  OR referrer LIKE '%search.brave.com%' OR referrer LIKE '%startpage.com%' OR referrer LIKE '%yandex.%')`;
+const SOCIAL_SQL = `(referrer LIKE '%bsky.app%' OR referrer LIKE '%facebook.com%' OR referrer LIKE '%t.co/%' OR referrer LIKE '%x.com%'
+  OR referrer LIKE '%twitter.com%' OR referrer LIKE '%reddit.com%' OR referrer LIKE '%youtube.com%' OR referrer LIKE '%instagram.com%'
+  OR referrer LIKE '%threads.net%' OR referrer LIKE '%linkedin.com%')`;
+
+// The council's 60-day test (superai projects/albumverse/audit/claude-verdict.md), judged on 30 days:
+// keep = 1,500+ organic visits AND 100+ actions; change = visits but < 100 actions; freeze = < 750 visits.
+export function goalSummary(days = 30, host = 'albumverse.com') {
+  const since = `datetime('now', '-${Math.max(1, Math.min(365, days | 0))} days')`;
+  const human = `is_bot = 0 AND created_at >= ${since}`;
+  const landings = db.prepare(
+    `SELECT
+       SUM(CASE WHEN ${ORGANIC_SQL} THEN 1 ELSE 0 END) AS organic,
+       SUM(CASE WHEN ${SOCIAL_SQL} THEN 1 ELSE 0 END) AS social,
+       SUM(CASE WHEN referrer IS NULL OR referrer = '' THEN 1 ELSE 0 END) AS direct,
+       SUM(CASE WHEN referrer LIKE ? THEN 1 ELSE 0 END) AS internal,
+       COUNT(*) AS total
+     FROM page_views WHERE ${human}`
+  ).get(`%${host}%`);
+  const n = (x) => Number(x || 0);
+  const organic = n(landings.organic), social = n(landings.social), direct = n(landings.direct), internal = n(landings.internal);
+  const actions = db.prepare(`SELECT type, COUNT(*) AS n FROM events WHERE ${human} GROUP BY type`).all();
+  const byType = Object.fromEntries(actions.map((a) => [a.type, a.n]));
+  const totalActions = actions.reduce((t, a) => t + a.n, 0);
+  const organicPages = db.prepare(
+    `SELECT path, COUNT(*) AS n FROM page_views WHERE ${human} AND ${ORGANIC_SQL} GROUP BY path ORDER BY n DESC LIMIT 15`
+  ).all();
+  const topOutbound = db.prepare(
+    `SELECT detail, COUNT(*) AS n FROM events WHERE ${human} AND type = 'outbound' GROUP BY detail ORDER BY n DESC LIMIT 10`
+  ).all();
+  let verdict = 'collecting';
+  if (organic >= 1500 && totalActions >= 100) verdict = 'keep';
+  else if (organic >= 1500) verdict = 'change';
+  else if (organic < 750) verdict = 'freeze (if this holds at the end of the test)';
+  return {
+    days, organic, social, direct, internal, other: Math.max(0, n(landings.total) - organic - social - direct - internal),
+    totalLandings: n(landings.total), actions: byType, totalActions, organicPages, topOutbound, verdict,
+    targets: { organic: 1500, actions: 100, freezeBelow: 750 },
+  };
+}
+
 export function analyticsSummary() {
   // Primary numbers are human-only (is_bot = 0) - bot crawl volume is real
   // traffic in the server-load sense but tells you nothing about visitor
@@ -1109,7 +1175,47 @@ export function getArtistLocal(mbid) {
     )
     .all(mbid, mbid);
 
-  return { ...artist, albums, appearances };
+  // What they did on each album: roles from track credits (MusicBrainz, linked by id) and from
+  // album credits (Discogs, linked by name only - that's how most producers/engineers appear).
+  const trackRoles = db
+    .prepare(
+      `SELECT t.album_mbid as id, tc.kind, tc.role, COUNT(DISTINCT t.id) as tracks
+       FROM track_credits tc JOIN tracks t ON t.id = tc.track_id
+       WHERE tc.artist_mbid = ? GROUP BY t.album_mbid, tc.kind, tc.role`
+    )
+    .all(mbid);
+  const discogsRoles = db
+    .prepare(
+      `SELECT ac.album_mbid as id, ac.role FROM album_credits ac
+       WHERE ac.name = ? COLLATE NOCASE`
+    )
+    .all(artist.name);
+  const roles = new Map();
+  const addRole = (id, role, tracks) => {
+    if (!roles.has(id)) roles.set(id, { roles: new Set(), tracks: 0 });
+    const r = roles.get(id);
+    for (const part of String(role || '').split(/,\s*/)) if (part.trim()) r.roles.add(part.trim().toLowerCase());
+    r.tracks = Math.max(r.tracks, tracks || 0);
+  };
+  for (const r of trackRoles) addRole(r.id, r.role || r.kind, r.tracks);
+  for (const r of discogsRoles) addRole(r.id, r.role, 0);
+  const known = new Set([...albums, ...appearances].map((a) => a.id));
+  const discogsOnly = [...new Set(discogsRoles.map((r) => r.id))].filter((id) => !known.has(id));
+  if (discogsOnly.length) {
+    const more = db
+      .prepare(
+        `SELECT al.mbid as id, al.title, al.type, al.release_date as date, al.artist_credit as artist, al.cover_art_url as coverArtUrl${ratingCols('al.')}
+         FROM albums al WHERE al.mbid IN (${discogsOnly.map(() => '?').join(',')})`
+      )
+      .all(...discogsOnly);
+    appearances.push(...more);
+    appearances.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+  }
+  const withRoles = (a) => {
+    const r = roles.get(a.id);
+    return r ? { ...a, roles: [...r.roles].slice(0, 5), tracks: r.tracks } : a;
+  };
+  return { ...artist, albums: albums.map(withRoles), appearances: appearances.map(withRoles) };
 }
 
 // Used for the In Memoriam video (see youtubeShort.js) - a handful of album

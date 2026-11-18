@@ -840,3 +840,23 @@ table.tracks th { color: var(--muted); font-weight: 600; font-size: 12px; text-t
   .review-date { margin-left: 0; }
   .review-head { flex-wrap: wrap; }
 }
+
+/* Credits first (album pages): who produced, wrote and played on it, grouped by role. */
+.credit-summary { margin: 24px 0 8px; }
+.credit-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 8px; }
+.credit-group { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.credit-group h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent, #a78bfa); }
+.credit-group ul { list-style: none; margin: 0; padding: 0; }
+.credit-group li { padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.credit-group li:last-child { border-bottom: none; }
+.credit-group .role { color: var(--muted, #9d97b8); font-size: 12px; }
+.credit-group .tracks { color: var(--muted, #9d97b8); font-size: 11px; margin-left: auto; }
+.credit-more { margin-top: 6px; background: none; border: none; color: var(--accent, #a78bfa); cursor: pointer; font: inherit; font-size: 13px; padding: 0; }
+
+/* Server-rendered credits, shown only until app.js loads (and to crawlers / no-JS). */
+#ssr-content { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+#ssr-content h1 { font-size: 24px; } #ssr-content h3 { margin: 16px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+#ssr-content ul, #ssr-content ol { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+.person-credits a { color: var(--text); text-decoration: underline dotted var(--accent); text-underline-offset: 3px; }
+.person-credits a:hover { color: var(--accent); }
+.person-credits + .section-title, .table-scroll + .section-title { margin-top: 28px; }

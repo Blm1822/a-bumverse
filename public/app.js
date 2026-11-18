@@ -367,6 +367,49 @@ function creditTags(list) {
     .join('');
 }
 
+// Credits first: who produced, wrote and played on the album, grouped by what they did
+// (data.creditSummary comes from credits.js on the server, the same grouping the page's
+// server-rendered HTML and meta description use).
+function creditSummaryHtml(groups, title) {
+  if (!groups || !groups.length) return '';
+  const person = (p) => {
+    const name = p.mbid
+      ? `<a href="/artist/${p.mbid}" class="artist-link" data-id="${p.mbid}">${escapeHtml(p.name)}</a>`
+      : escapeHtml(p.name);
+    const roles = p.roles && p.roles.length ? `<span class="role">${escapeHtml(p.roles.join(', '))}</span>` : '';
+    const where = p.allTracks ? '<span class="tracks">all tracks</span>'
+      : p.tracks > 1 ? `<span class="tracks">${p.tracks} tracks</span>` : '';
+    return `<li>${name}${roles}${where}</li>`;
+  };
+  const MAX = 12;
+  const block = (g) => {
+    const more = g.people.length - MAX;
+    return `<div class="credit-group"><h3>${escapeHtml(g.label)}</h3><ul>${g.people.slice(0, MAX).map(person).join('')}</ul>
+      ${more > 0 ? `<button type="button" class="credit-more" data-group="${escapeHtml(g.key)}">+ ${more} more</button>` : ''}</div>`;
+  };
+  return `<section class="credit-summary">
+      <h2 class="section-title">${escapeHtml(title)} credits</h2>
+      <div class="credit-groups">${groups.map(block).join('')}</div>
+    </section>`;
+}
+
+function wireCreditMore(container, groups) {
+  for (const btn of container.querySelectorAll('.credit-more')) {
+    btn.addEventListener('click', () => {
+      const g = groups.find((x) => x.key === btn.dataset.group);
+      if (!g) return;
+      const ul = btn.previousElementSibling;
+      const tmp = document.createElement('div');
+      tmp.innerHTML = creditSummaryHtml([{ ...g, people: g.people.slice(12) }], '');
+      for (const li of tmp.querySelectorAll('li')) ul.appendChild(li);
+      btn.remove();
+      for (const link of ul.querySelectorAll('.artist-link')) {
+        link.addEventListener('click', (e) => { e.preventDefault(); navigate(link.getAttribute('href')); });
+      }
+    });
+  }
+}
+
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -1379,7 +1422,8 @@ async function renderArtist(id) {
         ${data.coverArtUrl ? `<img src="${data.coverArtUrl}" alt="" onerror="this.style.visibility='hidden'" />` : ''}
         <div>
           <h2>${escapeHtml(data.name)}</h2>
-          ${data.disambiguation ? `<div class="sub">${escapeHtml(data.disambiguation)}</div>` : ''}
+          ${data.roleLine ? `<div class="sub role-line">${escapeHtml(data.roleLine)}</div>`
+            : data.disambiguation ? `<div class="sub">${escapeHtml(data.disambiguation)}</div>` : ''}
           ${data.type === 'Person' && (data.bornDate || data.diedDate) ? `<div class="sub">${escapeHtml(lifespanLabel(data))}</div>` : ''}
           <div class="watchlist-toggle-wrap" id="artist-watchlist-toggle"></div>
           ${data.bio ? `<p class="bio">${escapeHtml(data.bio)}</p>` : ''}
@@ -1393,6 +1437,16 @@ async function renderArtist(id) {
           ${shareLinksHtml(`${data.name} — on Albumverse`)}
         </div>
       </div>
+      ${(data.appearances || []).length ? `
+        <h2 class="section-title">${escapeHtml(data.name)} credits</h2>
+        <div class="table-scroll"><table class="tracks person-credits">
+          <thead><tr><th>Album</th><th>Artist</th><th>Year</th><th>Role</th></tr></thead>
+          <tbody>${data.appearances.slice().reverse().map((a) => `<tr>
+            <td><a href="/album/${a.id}" class="album-link">${escapeHtml(a.title)}</a></td>
+            <td>${escapeHtml(a.artist || '')}</td><td>${a.date ? escapeHtml(a.date.slice(0, 4)) : ''}</td>
+            <td>${escapeHtml((a.roles || []).join(', '))}${a.tracks > 1 ? ` <span class="role">(${a.tracks} tracks)</span>` : ''}</td></tr>`).join('')}</tbody>
+        </table></div>
+      ` : ''}
       ${(data.albums || []).length ? `
         <h2 class="section-title">Discography</h2>
         <div class="grid" id="artist-albums-grid"></div>
@@ -1416,6 +1470,9 @@ async function renderArtist(id) {
     if (grid) for (const al of data.albums || []) grid.appendChild(albumCard(al));
     const appearGrid = document.getElementById('artist-appearances-grid');
     if (appearGrid) for (const al of data.appearances || []) appearGrid.appendChild(albumCard(al));
+    for (const link of artistEl.querySelectorAll('.album-link')) {
+      link.addEventListener('click', (e) => { e.preventDefault(); track('credit_click', link.textContent.trim()); navigate(link.getAttribute('href')); });
+    }
     wireShareLinks(artistEl);
     loadSimilarArtists(data.id);
     loadUpcomingShows(data.id);
@@ -1518,8 +1575,6 @@ async function renderAlbum(id) {
           <h2>${escapeHtml(data.title)}</h2>
           <div class="sub">${artistLinks} · ${escapeHtml(data.type)}${data.date ? ' · ' + escapeHtml(data.date) : ''}</div>
           ${data.label ? `<div class="sub">Label: ${escapeHtml(data.label)}</div>` : ''}
-          <div class="rating-summary" id="rating-summary">${renderRatingSummaryHtml(data.rating)}</div>
-          <div class="watchlist-toggle-wrap" id="album-watchlist-toggle"></div>
           ${(data.genres || []).length ? `<div class="genre-tags">${data.genres.map((g) => `<a href="/genre?name=${encodeURIComponent(g)}" class="genre-tag" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</a>`).join('')}</div>` : ''}
           <div class="listen-links">
             ${listenLinks(data.artist, data.title).map((l) => `<a href="${l.url}" class="listen-link" target="_blank" rel="noopener">Listen on ${l.name} &rarr;</a>`).join('')}
@@ -1527,6 +1582,8 @@ async function renderAlbum(id) {
           ${shareLinksHtml(`${data.title} by ${data.artist} — on Albumverse`)}
         </div>
       </div>
+      ${creditSummaryHtml(data.creditSummary, data.title)}
+      <h2 class="section-title">Track-by-track${(data.credits || []).length ? ' <span class="credits-source">album credits via Discogs</span>' : ''}</h2>
       <div class="table-scroll">
         <table class="tracks">
           <thead>
@@ -1535,19 +1592,17 @@ async function renderAlbum(id) {
           <tbody>${rows}</tbody>
         </table>
       </div>
-      ${(data.credits || []).length ? `
-        <h2 class="section-title credits-title">Additional credits <span class="credits-source">via Discogs</span></h2>
-        <div class="credits-wrap">${creditTags(data.credits)}</div>
-      ` : ''}
-      <div id="reviews-section">
-        <h2 class="section-title">Ratings &amp; reviews</h2>
-        <div id="rate-widget"></div>
-        <div id="reviews-list"></div>
-        <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="reviews-load-more">Load more</button></div>
-      </div>
       <div id="similar-albums-section" class="hidden">
         <h2 class="section-title">Similar albums</h2>
         <div class="grid" id="similar-albums-grid"></div>
+      </div>
+      <div id="reviews-section">
+        <h2 class="section-title">Ratings &amp; reviews</h2>
+        <div class="rating-summary" id="rating-summary">${renderRatingSummaryHtml(data.rating)}</div>
+        <div class="watchlist-toggle-wrap" id="album-watchlist-toggle"></div>
+        <div id="rate-widget"></div>
+        <div id="reviews-list"></div>
+        <div class="load-more-wrap hidden"><button class="load-more-btn" type="button" id="reviews-load-more">Load more</button></div>
       </div>
     `;
     document.getElementById('back-btn').addEventListener('click', () => history.back());
@@ -1564,6 +1619,7 @@ async function renderAlbum(id) {
       });
     }
     wireShareLinks(albumEl);
+    wireCreditMore(albumEl, data.creditSummary || []);
     loadSimilarAlbums(data.id);
     loadReviews(data.id);
     loadWatchlistToggle(document.getElementById('album-watchlist-toggle'), 'album', data.id);
@@ -2046,6 +2102,7 @@ form.addEventListener('submit', (e) => {
   e.preventDefault();
   closeSuggest();
   const q = input.value.trim();
+  if (q) track('search', q.slice(0, 100));
   if (q) navigate(`/search?q=${encodeURIComponent(q)}`);
   else navigate('/');
 });
@@ -2072,6 +2129,32 @@ document.getElementById('genres-tiles').addEventListener('click', (e) => {
   const tile = e.target.closest('.browse-tile');
   if (tile) navigate(`/genre?name=${encodeURIComponent(tile.dataset.value)}`);
 });
+
+// --- 60-day test tracking: one small beacon per meaningful action. ---
+function track(type, detail) {
+  try {
+    const body = JSON.stringify({ type, path: location.pathname, detail: detail || null });
+    if (navigator.sendBeacon) navigator.sendBeacon('/api/event', body);
+    else fetch('/api/event', { method: 'POST', body, keepalive: true }).catch(() => {});
+  } catch {
+    // tracking must never break the page
+  }
+}
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a, .copy-link-btn');
+  if (!a) return;
+  if (a.matches('.share-link, .copy-link-btn')) return track('share', a.textContent.trim());
+  if (a.closest('.credit-summary, .credits-wrap, table.tracks') && a.matches('.artist-link')) return track('credit_click', a.textContent.trim());
+  const href = a.getAttribute('href') || '';
+  if (/^https?:\/\//.test(href) && !href.includes(location.host)) {
+    let host = '';
+    try { host = new URL(href).hostname.replace(/^www\./, ''); } catch {}
+    track('outbound', `${host}: ${a.textContent.trim()}`.slice(0, 120));
+  }
+}, true);
+
+// The server puts the album's credits in the HTML for search engines; the app renders the same thing.
+document.getElementById('ssr-content')?.remove();
 
 route();
 

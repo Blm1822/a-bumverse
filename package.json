@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "test": "node --test credits.test.js",
     "import": "node scripts/import.js",
     "backfill": "node scripts/backfill.js",
     "backfill-lifespan": "node scripts/backfill-lifespan.js"
