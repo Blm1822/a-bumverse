@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary } from './db.js';
+import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml } from './credits.js';
 import { searchReleaseGroups, getAlbumDetail } from './mb.js';
 import { findDiscogsCredits } from './discogs.js';
 import { getUpcomingShows } from './seatgeek.js';
@@ -399,6 +400,23 @@ app.get('/api/search', async (req, res) => {
   res.json({ results: local, total: countSearchLocal(q) });
 });
 
+function withCreditSummary(album) {
+  return album ? { ...album, creditSummary: summarizeCredits(album) } : album;
+}
+
+// Visitor actions for the 60-day test (searches, credit clicks, outbound links, shares).
+// Sent with navigator.sendBeacon; small, rate-limited, never blocks the page.
+const eventLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
+app.post('/api/event', eventLimiter, express.text({ type: '*/*', limit: '2kb' }), (req, res) => {
+  try {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    logEvent({ type: body.type, path: body.path, detail: body.detail, userAgent: req.get('user-agent') });
+  } catch {
+    // ignore malformed beacons
+  }
+  res.status(204).end();
+});
+
 app.get('/api/album/:mbid', async (req, res) => {
   const { mbid } = req.params;
   if (!MBID_RE.test(mbid)) {
@@ -406,7 +424,7 @@ app.get('/api/album/:mbid', async (req, res) => {
   }
 
   const cached = getAlbumLocal(mbid);
-  if (cached) return res.json(cached);
+  if (cached) return res.json(withCreditSummary(cached));
 
   // Not in our db yet - this is the "funnel": fetch it live from MusicBrainz,
   // save it permanently, and serve it. Next person to look this up gets it instantly.
@@ -421,7 +439,7 @@ app.get('/api/album/:mbid', async (req, res) => {
     const discogsCredits = await findDiscogsCredits(detail.artist, detail.title);
     if (discogsCredits.length) setAlbumCredits(mbid, discogsCredits);
     markEnriched(mbid);
-    res.json(getAlbumLocal(mbid));
+    res.json(withCreditSummary(getAlbumLocal(mbid)));
   } catch (err) {
     console.error('live album lookup failed', mbid, err.message);
     res.status(502).json({ error: 'Could not fetch this album from MusicBrainz right now. Try again shortly.' });
@@ -654,7 +672,7 @@ app.get('/api/artist/:mbid', async (req, res) => {
       console.error('wikipedia bio lookup failed', artist.name, err.message);
     }
   }
-  res.json(artist);
+  res.json({ ...artist, roleLine: personSummary(artist).roleLine });
 });
 
 app.get('/api/artist/:mbid/similar', (req, res) => {
@@ -817,7 +835,7 @@ function breadcrumbJsonLd(req, items) {
   };
 }
 
-function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 'website' }) {
+function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 'website', fullTitle, bodyHtml }) {
   let html = fs.readFileSync(indexHtmlPath, 'utf8');
   const safeTitle = escapeAttr(title || 'Albumverse');
   const safeDesc = escapeAttr(description || 'A music database - search albums, see who wrote and performed every track.');
@@ -843,8 +861,13 @@ function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 
   ].join('\n    ');
   // Avoid "Albumverse — Albumverse" for the homepage, the one caller with no
   // real page-specific title of its own.
-  const titleTag = title ? `${safeTitle} — Albumverse` : 'Albumverse';
+  // fullTitle: a page that already names itself fully (album credit pages) skips the
+  // " — Albumverse" suffix so the words people search for fit in Google's ~60 characters.
+  const titleTag = fullTitle ? escapeAttr(fullTitle) : title ? `${safeTitle} — Albumverse` : 'Albumverse';
   html = html.replace('<title>Albumverse</title>', `<title>${titleTag}</title>\n    ${tags}`);
+  // Server-rendered content so crawlers get the real text in the first response; app.js
+  // removes this block on load and renders the same data itself.
+  if (bodyHtml) html = html.replace('<main id="app">', `<main id="app">\n    <div id="ssr-content">${bodyHtml}</div>`);
   return html;
 }
 
@@ -852,7 +875,8 @@ app.get('/album/:mbid', (req, res) => {
   logView(req, null);
   const album = MBID_RE.test(req.params.mbid) ? getAlbumLocal(req.params.mbid) : null;
   if (!album) return res.sendFile(indexHtmlPath);
-  const description = `${album.artist} · ${album.type}${album.date ? ' · ' + album.date : ''} — tracklist, writers, and performers on Albumverse.`;
+  const creditGroups = summarizeCredits(album);
+  const description = creditsDescription(album, creditGroups);
   const primaryArtist = (album.artists || [])[0];
   const breadcrumbItems = primaryArtist
     ? [{ name: primaryArtist.name, path: `/artist/${primaryArtist.id}` }, { name: album.title, path: `/album/${album.id}` }]
@@ -863,6 +887,8 @@ app.get('/album/:mbid', (req, res) => {
     image: album.coverArtUrl,
     jsonLd: [albumJsonLd(req, album), breadcrumbJsonLd(req, breadcrumbItems)],
     ogType: 'music.album',
+    fullTitle: creditsTitle(album),
+    bodyHtml: creditsHtml(album, creditGroups),
   }));
 });
 
@@ -870,13 +896,17 @@ app.get('/artist/:mbid', (req, res) => {
   logView(req, null);
   const artist = MBID_RE.test(req.params.mbid) ? getArtistLocal(req.params.mbid) : null;
   if (!artist) return res.sendFile(indexHtmlPath);
-  const description = artist.bio ? artist.bio.slice(0, 200) : `${artist.name} - discography on Albumverse.`;
+  // Most of the site's search impressions are people's names landing here, so the title,
+  // description and server-rendered HTML lead with what this person did (credits.js).
+  const summary = personSummary(artist);
   res.send(renderIndexWithMeta(req, {
     title: artist.name,
-    description,
+    description: personDescription(artist, summary),
     image: artist.coverArtUrl,
     jsonLd: [artistJsonLd(req, artist), breadcrumbJsonLd(req, [{ name: artist.name, path: `/artist/${artist.id}` }])],
     ogType: 'profile',
+    fullTitle: personTitle(artist, summary),
+    bodyHtml: personHtml(artist, summary),
   }));
 });
 
@@ -1075,6 +1105,7 @@ function requireAnalyticsAuth(req, res, next) {
 // the SPA - a plain server-rendered page since this is a tool for us, not visitors.
 app.get('/analytics', requireAnalyticsAuth, (req, res) => {
   const s = analyticsSummary();
+  const g = goalSummary(30, req.get('host') || 'albumverse.com');
   const dbStats = stats();
   const row = (label, n) => `<tr><td>${escapeAttr(label)}</td><td>${n}</td></tr>`;
   const html = `<!doctype html><html><head><meta charset="utf-8" />
@@ -1089,6 +1120,22 @@ app.get('/analytics', requireAnalyticsAuth, (req, res) => {
       .stat .n { font-size: 28px; font-weight: 800; } .stat .l { color: #9d97b8; font-size: 12px; }
     </style></head><body>
     <h1>Albumverse Analytics</h1>
+    <h2>60-day test · last 30 days</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${g.organic.toLocaleString()} <span style="font-size:14px;color:#9d97b8">/ ${g.targets.organic.toLocaleString()}</span></div><div class="l">visits from search engines</div></div>
+      <div class="stat"><div class="n">${g.totalActions.toLocaleString()} <span style="font-size:14px;color:#9d97b8">/ ${g.targets.actions}</span></div><div class="l">actions (search, credit &amp; outbound clicks, shares)</div></div>
+      <div class="stat"><div class="n" style="font-size:18px;padding-top:8px">${escapeAttr(g.verdict)}</div><div class="l">where it stands</div></div>
+    </div>
+    <p style="color: #6b6584; font-size: 12px; margin-top: 10px;">
+      Keep: 1,500+ search visits and 100+ actions. Change: visits but under 100 actions. Freeze: under 750 search visits.
+      Landings by source: search ${g.organic}, social ${g.social}, direct ${g.direct}, internal ${g.internal}, other ${g.other}.
+      Actions: ${Object.entries(g.actions).map(([k, v]) => `${escapeAttr(k)} ${v}`).join(', ') || 'none yet'}.
+    </p>
+    <h2>Top landing pages from search (30 days)</h2>
+    <table>${g.organicPages.map((p) => row(p.path, p.n)).join('') || '<tr><td>No search visits logged yet</td></tr>'}</table>
+    <h2>Top outbound clicks (30 days)</h2>
+    <table>${g.topOutbound.map((o) => row(o.detail, o.n)).join('') || '<tr><td>None yet</td></tr>'}</table>
+    <h2>All traffic</h2>
     <div class="stat-row">
       <div class="stat"><div class="n">${s.today}</div><div class="l">views today</div></div>
       <div class="stat"><div class="n">${s.last7d}</div><div class="l">views (7 days)</div></div>
@@ -1221,6 +1268,9 @@ app.listen(PORT, () => {
   console.log('Database:', stats());
   launchSeedImports();
   startSocialPoster();
-  startYoutubePoster();
+  // Paused by default (council, Nov 2026): it needs a manual YouTube re-login every week and
+  // has no measured return. Set YOUTUBE_SHORTS=on in Railway to turn it back on.
+  if (process.env.YOUTUBE_SHORTS === 'on') startYoutubePoster();
+  else console.log('YouTube Shorts poster paused (set YOUTUBE_SHORTS=on to enable)');
   startWikidataDeathCheck();
 });
