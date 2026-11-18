@@ -286,6 +286,10 @@ export function personDescription(artist, s = personSummary(artist), max = 158) 
     const t = s.notable.slice(0, 3);
     const which = n <= t.length ? `on ${list(t)}` : `on ${n} albums including ${list(t)}`;
     d = `${name}${s.roleLine ? ` (${s.roleLine})` : ''}: credited ${which}. Every album ${name} wrote, produced or played on, with roles.`;
+  } else if ((artist.songs || []).length) {
+    const n = artist.songs.length;
+    const t = artist.songs.slice(-3).reverse().map((x) => `“${x.song}”${x.by ? ` (${x.by})` : ''}`);
+    d = `${name}: credited on ${n} song${n === 1 ? '' : 's'} including ${list(t)}. Every song, album and role.`;
   } else if (s.nAlbums) {
     const t = titlesOf(artist.albums || [], 3);
     d = `${name}: ${s.nAlbums} album${s.nAlbums === 1 ? '' : 's'}${t.length ? ` including ${list(t)}` : ''}, with full credits.`;
@@ -313,6 +317,8 @@ export function personHtml(artist, s = personSummary(artist), extras = {}) {
   }).join('');
   const albums = (artist.albums || [])
     .map((a) => `<li><a href="/album/${esc(a.id)}">${esc(a.title)}</a>${yr(a)}</li>`).join('');
+  const songs = (extras.songs || []).slice(0, 200)
+    .map((x) => `<li>“${esc(x.song)}”${x.by ? ` by ${esc(x.by)}` : ''}, from <a href="/album/${esc(x.albumId)}">${esc(x.album)}</a>${yr(x)}: ${esc(x.roles.join(', '))}</li>`).join('');
   const bio = artist.bio ? `<p>${esc(String(artist.bio).slice(0, 700))}</p>` : '';
   return `<article class="ssr-artist">
   <h1>${esc(artist.name)}</h1>
@@ -320,6 +326,7 @@ export function personHtml(artist, s = personSummary(artist), extras = {}) {
   ${bio}
   ${known ? `<h2>Known for</h2><ul>${known}</ul>` : ''}
   ${groups}
+  ${songs ? `<h2>Songs (${(extras.songs || []).length})</h2><ul>${songs}</ul>` : ''}
   ${worked ? `<h2>Worked with</h2><ul>${worked}</ul>` : ''}
   ${collab ? `<h2>Frequent collaborators</h2><ul>${collab}</ul>` : ''}
   ${albums ? `<h2>${isGroup(artist) ? 'Discography' : 'Albums'}</h2><ul>${albums}</ul>` : ''}

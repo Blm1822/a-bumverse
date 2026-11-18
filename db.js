@@ -164,6 +164,8 @@ CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title);
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_mbid);
 CREATE INDEX IF NOT EXISTS idx_credits_track ON track_credits(track_id);
+CREATE INDEX IF NOT EXISTS idx_credits_artist ON track_credits(artist_mbid);
+CREATE INDEX IF NOT EXISTS idx_credits_name ON track_credits(name COLLATE NOCASE);
 -- A person's full career from MusicBrainz relationships (personCredits.js), one row per
 -- credit mapped to the original album (release group). Albums may not be in \`albums\` yet;
 -- their pages fetch them on first visit.
@@ -588,6 +590,38 @@ export function saveSongCredits(albumMbid, tracks, albumCredits = []) {
     throw err;
   }
   return withMusicians;
+}
+
+// Every song a person is credited on, from album tracklists: by MusicBrainz id,
+// plus credits saved by name only (Discogs) when withName is set. One row per
+// song (the same song on a reissue or compilation counts once, at its earliest
+// album), with every role they had on it, oldest first.
+export function songsForPerson(mbid, name, { withName = false, limit = 2000 } = {}) {
+  const rows = db.prepare(
+    `SELECT t.title AS song, t.position, al.mbid AS albumId, al.title AS album, al.release_date AS date,
+            al.artist_credit AS by, al.type, tc.kind, tc.role
+     FROM track_credits tc
+     JOIN tracks t ON t.id = tc.track_id
+     JOIN albums al ON al.mbid = t.album_mbid
+     WHERE tc.artist_mbid = ? OR (? = 1 AND tc.artist_mbid IS NULL AND tc.name = ? COLLATE NOCASE)
+     LIMIT 20000`
+  ).all(mbid, withName ? 1 : 0, name || '');
+  const key = (r) => `${String(r.song).toLowerCase().replace(/\s*[([].*?[)\]]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()}|${String(r.by || '').toLowerCase()}`;
+  const songs = new Map();
+  for (const r of rows) {
+    const k = key(r);
+    let s = songs.get(k);
+    if (!s) songs.set(k, (s = { song: r.song, albumId: r.albumId, album: r.album, date: r.date || '', by: r.by, roles: new Set(), albums: new Set() }));
+    s.albums.add(r.albumId);
+    // Earliest album with a date wins, so the original beats the reissue.
+    if (r.date && (!s.date || r.date < s.date)) Object.assign(s, { song: r.song, albumId: r.albumId, album: r.album, date: r.date });
+    const role = r.kind === 'writer' ? 'songwriter' : String(r.role || 'performer').toLowerCase();
+    s.roles.add(role);
+  }
+  return [...songs.values()]
+    .map((s) => ({ ...s, roles: [...s.roles], alsoOn: s.albums.size - 1, albums: undefined }))
+    .sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.song.localeCompare(b.song))
+    .slice(0, limit);
 }
 
 export function countAlbumsNeedingEnrichment() {

@@ -423,6 +423,44 @@ function renderCreditTable(el, group, limit = 60) {
   if (more) more.addEventListener('click', () => renderCreditTable(el, group, Infinity));
 }
 
+// Every song a person is credited on: year, song (album · artist), what they did.
+// The filter box narrows by song, album, artist or instrument ("guitar solo").
+function renderSongTable(el, songs, limit = 60, q = '') {
+  if (!el) return;
+  const needle = q.trim().toLowerCase();
+  const list = needle
+    ? songs.filter((x) => `${x.song} ${x.album} ${x.by} ${x.roles.join(' ')}`.toLowerCase().includes(needle))
+    : songs;
+  const row = (x) => `<tr>
+      <td class="yr">${x.date ? escapeHtml(String(x.date).slice(0, 4)) : '—'}</td>
+      <td><strong class="song-title">${escapeHtml(x.song)}</strong><div class="by"><a href="/album/${x.albumId}" class="album-link">${escapeHtml(x.album)}</a>${x.by ? ` · ${escapeHtml(x.by)}` : ''}${x.alsoOn ? ` <span class="also-on">+${x.alsoOn} more release${x.alsoOn === 1 ? '' : 's'}</span>` : ''}</div></td>
+      <td>${escapeHtml(x.roles.join(', '))}</td>
+    </tr>`;
+  el.innerHTML = `${songs.length > 12 ? `<input type="search" class="song-filter" placeholder="Filter ${songs.length} songs by song, album, artist or instrument" value="${escapeHtml(q)}" />` : ''}
+    <div class="table-scroll"><table class="tracks person-credits song-credits">
+      <thead><tr><th>Year</th><th>Song</th><th>Role</th></tr></thead>
+      <tbody>${list.slice(0, limit).map(row).join('') || '<tr><td colspan="3" class="empty">No songs match.</td></tr>'}</tbody></table></div>
+    ${list.length > limit ? `<div class="load-more-wrap"><button type="button" class="load-more-btn" id="song-more">Show all ${list.length}</button></div>` : ''}`;
+  for (const link of el.querySelectorAll('.album-link')) {
+    link.addEventListener('click', (e) => { e.preventDefault(); track('credit_click', link.textContent.trim()); navigate(link.getAttribute('href')); });
+  }
+  const more = el.querySelector('#song-more');
+  if (more) more.addEventListener('click', () => renderSongTable(el, songs, Infinity, q));
+  const box = el.querySelector('.song-filter');
+  if (box) {
+    let t;
+    box.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        renderSongTable(el, songs, limit, box.value);
+        const nb = el.querySelector('.song-filter');
+        nb.focus();
+        nb.setSelectionRange(nb.value.length, nb.value.length);
+      }, 150);
+    });
+  }
+}
+
 function wireCreditMore(container, groups) {
   for (const btn of container.querySelectorAll('.credit-more')) {
     btn.addEventListener('click', () => {
@@ -1573,11 +1611,11 @@ async function renderArtist(id) {
           <small>${escapeHtml(a.by || '')}${a.date ? ` · ${escapeHtml(String(a.date).slice(0, 4))}` : ''}</small>
           <small class="cat">${escapeHtml(a.category || '')}</small></a>`).join('')}</div>
       ` : ''}
-      ${(data.creditGroups || []).length ? `
+      ${(data.creditGroups || []).length || (data.songs || []).length ? `
         <section class="filmography">
           <h2 class="section-title">${escapeHtml(data.name)} credits</h2>
           ${data.creditsComplete || data.type === 'Group' ? '' : '<p class="credits-note">Full career credits are being added from MusicBrainz — check back soon.</p>'}
-          <div class="credit-tabs" role="tablist">${data.creditGroups.map((g, i) => `<button type="button" class="credit-tab${i ? '' : ' on'}" data-i="${i}" role="tab">${escapeHtml(g.label)} <span>${g.count}</span></button>`).join('')}</div>
+          <div class="credit-tabs" role="tablist">${data.creditGroups.map((g, i) => `<button type="button" class="credit-tab${i ? '' : ' on'}" data-i="${i}" role="tab">${escapeHtml(g.label)} <span>${g.count}</span></button>`).join('')}${(data.songs || []).length ? `<button type="button" class="credit-tab${data.creditGroups.length ? '' : ' on'}" data-i="songs" role="tab">Songs <span>${data.songs.length}</span></button>` : ''}</div>
           <div id="credit-table"></div>
         </section>
       ` : ''}
@@ -1615,14 +1653,16 @@ async function renderArtist(id) {
     for (const a of artistEl.querySelectorAll('.known-card, .collab-chip.artist-link')) {
       a.addEventListener('click', (e) => { e.preventDefault(); track('credit_click', a.textContent.trim().slice(0, 80)); navigate(a.getAttribute('href')); });
     }
-    if ((data.creditGroups || []).length) {
+    if ((data.creditGroups || []).length || (data.songs || []).length) {
       const tabs = artistEl.querySelectorAll('.credit-tab');
       const show = (i) => {
-        tabs.forEach((t) => t.classList.toggle('on', Number(t.dataset.i) === i));
-        renderCreditTable(document.getElementById('credit-table'), data.creditGroups[i]);
+        tabs.forEach((t) => t.classList.toggle('on', t.dataset.i === String(i)));
+        const el = document.getElementById('credit-table');
+        if (i === 'songs') { track('credit_click', 'songs tab'); renderSongTable(el, data.songs); }
+        else renderCreditTable(el, data.creditGroups[i]);
       };
-      tabs.forEach((t) => t.addEventListener('click', () => show(Number(t.dataset.i))));
-      show(0);
+      tabs.forEach((t) => t.addEventListener('click', () => show(t.dataset.i === 'songs' ? 'songs' : Number(t.dataset.i))));
+      show(data.creditGroups.length ? 0 : 'songs');
     }
     wireShareLinks(artistEl);
     loadSimilarArtists(data.id);

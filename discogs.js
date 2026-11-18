@@ -47,10 +47,11 @@ function discogsFetch(url) {
   return result;
 }
 
-// Discogs adds " (2)" to tell same-named people apart, and "anv" is the name as
-// printed on this release. Show the printed name without the number.
+// Discogs adds " (2)" to tell same-named people apart. Use the person's main
+// Discogs name (not "anv", the variant printed on one record, e.g. "Luke"), so
+// one person's credits share one name across albums.
 export function cleanDiscogsName(a) {
-  return String(a.anv || a.name || '').replace(/\s*\(\d+\)$/, '').trim();
+  return String(a.name || '').replace(/\s*\(\d+\)$/, '').trim();
 }
 
 // Best-guess match: search by "<artist> <title>", take the first release

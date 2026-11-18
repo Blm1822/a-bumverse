@@ -33,7 +33,7 @@ test('Discogs track scopes and names', () => {
   assert.deepEqual([...parseTrackSpec('A1, B2', pos)], [0, 3]);
   assert.deepEqual([...parseTrackSpec('C9', pos)], []);
   assert.equal(cleanDiscogsName({ name: 'Paul Jackson (2)' }), 'Paul Jackson');
-  assert.equal(cleanDiscogsName({ name: 'Steve Lukather', anv: 'Steve' }), 'Steve');
+  assert.equal(cleanDiscogsName({ name: 'Steve Lukather', anv: 'Luke' }), 'Steve Lukather');
   assert.equal(normTitle('Beat It (Single Version)'), 'beat it');
 });
 
@@ -104,4 +104,26 @@ test('saving song credits replaces musicians, keeps writers, marks the album', (
   assert.deepEqual(a.credits.map((c) => c.source), ['musicbrainz']);
   assert.ok(db.albumSongCreditsAt('rg1'));
   assert.ok(!db.albumsNeedingSongCredits(10).some((x) => x.id === 'rg1'));
+});
+
+test('songs for a person: by id, by name when unique, one row per song, roles merged', async () => {
+  const { personHtml, personDescription } = await import('./credits.js');
+  db.upsertArtist({ mbid: 'luke', name: 'Steve Lukather', disambiguation: null });
+  const mk = (id, title, date, artist, tracks) => db.upsertAlbum({ id, title, type: 'Album', date, artist, label: '', coverArtUrl: null, genres: [], tracks }, []);
+  mk('thr', 'Thriller', '1982-11-30', 'Michael Jackson', [
+    { position: 1, title: 'Beat It', recordingMbid: 'b1', performers: [{ name: 'Steve Lukather', role: 'guitar', mbid: 'luke' }, { name: 'Steve Lukather', role: 'Bass' }], writers: [] },
+    { position: 2, title: 'Human Nature', recordingMbid: 'h1', performers: [{ name: 'Steve Lukather', role: 'Guitar' }], writers: [{ name: 'Steve Porcaro', role: 'writer' }] },
+  ]);
+  mk('hits', 'Number Ones', '2003-11-18', 'Michael Jackson', [
+    { position: 1, title: 'Beat It (Single Version)', recordingMbid: 'b2', performers: [{ name: 'Steve Lukather', role: 'guitar', mbid: 'luke' }], writers: [] },
+  ]);
+  const songs = db.songsForPerson('luke', 'Steve Lukather', { withName: true });
+  assert.deepEqual(songs.map((x) => x.song), ['Beat It', 'Human Nature']);
+  assert.equal(songs[0].album, 'Thriller');
+  assert.equal(songs[0].alsoOn, 1);
+  assert.deepEqual(songs[0].roles.sort(), ['bass', 'guitar']);
+  assert.equal(db.songsForPerson('luke', 'Steve Lukather', { withName: false }).length, 1, 'name-only credits need withName');
+  const a = { id: 'luke', name: 'Steve Lukather', songs, creditGroups: [] };
+  assert.match(personHtml(a, undefined, a), /Songs \(2\)/);
+  assert.match(personDescription(a), /credited on 2 songs/);
 });
