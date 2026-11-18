@@ -69,8 +69,11 @@ export function pickOriginal(releases) {
   const ok = (releases || [])
     .map(rgOf)
     .filter((g) => g.id && g.type && TYPE_RANK[String(g.type).toLowerCase()] !== undefined && !g.secondary.length);
+  // remixes, edits and live versions released as plain singles rank after the original
+  const alt = (g) => (/\b(remix|mix|edit|live|version|acoustic|instrumental)\b/i.test(g.title || '') ? 1 : 0);
   ok.sort((a, b) =>
-    TYPE_RANK[String(a.type).toLowerCase()] - TYPE_RANK[String(b.type).toLowerCase()]
+    alt(a) - alt(b)
+    || TYPE_RANK[String(a.type).toLowerCase()] - TYPE_RANK[String(b.type).toLowerCase()]
     || String(a.date || '9999').localeCompare(String(b.date || '9999')));
   return ok[0] || null;
 }

@@ -62,3 +62,9 @@ test('album year is the earliest release seen for that release group', () => {
   });
   assert.ok(rows.every((r) => r.date === '1984-03-13'), JSON.stringify(rows));
 });
+
+test('original album beats a remix or edit single', () => {
+  const mk = (id, title, type, date) => ({ id, date, 'release-group': { id: `rg-${id}`, title, 'primary-type': type, 'secondary-types': [] } });
+  assert.equal(pickOriginal([mk('rmx', 'Azizam (Chris Barnes remix)', 'Single', '2025-01-01'), mk('alb', 'Play', 'Album', '2025-09-12')]).id, 'rg-alb');
+  assert.equal(pickOriginal([mk('ed', 'Kick Ass (Edit)', 'Single', '2021-01-01'), mk('s', 'Kick Ass', 'Single', '2021-02-01')]).id, 'rg-s');
+});
