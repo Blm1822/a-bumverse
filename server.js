@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames } from './db.js';
+import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames, browsePeople, countPeople, PEOPLE_ROLES } from './db.js';
+import { buildHome } from './home.js';
 import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups, knownFor } from './credits.js';
 import { searchReleaseGroups, getAlbumDetail, searchArtist } from './mb.js';
 import { prioritizePerson, startPersonEnricher } from './personCredits.js';
@@ -878,7 +879,11 @@ function renderIndexWithMeta(req, { title, description, image, jsonLd, ogType = 
   html = html.replace('<title>Albumverse</title>', `<title>${titleTag}</title>\n    ${tags}`);
   // Server-rendered content so crawlers get the real text in the first response; app.js
   // removes this block on load and renders the same data itself.
-  if (bodyHtml) html = html.replace('<main id="app">', `<main id="app">\n    <div id="ssr-content">${bodyHtml}</div>`);
+  if (bodyHtml) {
+    html = html.replace('<main id="app">', `<main id="app">\n    <div id="ssr-content">${bodyHtml}</div>`);
+    // the homepage's headline lives in the shared template: on other pages it isn't their main heading
+    html = html.replace('<h1>Who played on that record?</h1>', '<p class="home-title">Who played on that record?</p>');
+  }
   return html;
 }
 
@@ -1086,6 +1091,46 @@ app.get('/artists', (req, res) => {
   }));
 });
 
+app.get('/api/home', (req, res) => {
+  try {
+    res.json(buildHome());
+  } catch (err) {
+    console.error('home build failed', err.message);
+    res.status(500).json({ error: 'home unavailable' });
+  }
+});
+
+// People pages: everyone with filled-in credits, or one role, ranked by albums credited.
+const ROLE_PAGES = {
+  producer: { title: 'Music producers', blurb: 'Record producers ranked by albums produced, with every credit.' },
+  songwriter: { title: 'Songwriters', blurb: 'Songwriters ranked by albums their songs appear on.' },
+  performer: { title: 'Session musicians', blurb: 'The musicians who played on the records: guitar, drums, keys, vocals and more.' },
+  engineering: { title: 'Engineers & mixers', blurb: 'Recording, mixing and mastering engineers and their albums.' },
+  arrangement: { title: 'Arrangers', blurb: 'Arrangers and conductors and the albums they shaped.' },
+};
+const roleParam = (r) => (PEOPLE_ROLES.includes(r) ? r : null);
+
+app.get('/api/people', (req, res) => {
+  const role = roleParam(req.query.role);
+  const { limit, offset } = pageParams(req);
+  res.json({ results: browsePeople(role, limit, offset), total: countPeople(role), role });
+});
+
+app.get('/people', (req, res) => {
+  logView(req, null);
+  const role = roleParam(req.query.role);
+  const page = role ? ROLE_PAGES[role] : { title: 'People', blurb: 'The producers, songwriters and musicians behind the records, ranked by albums credited.' };
+  const top = browsePeople(role, 60, 0);
+  const esc = (x) => escapeAttr(String(x));
+  const body = `<article class="ssr-people"><h1>${esc(page.title)}</h1><p>${esc(page.blurb)}</p><ol>${top
+    .map((p) => `<li><a href="/artist/${esc(p.id)}">${esc(p.name)}</a> (${p.credits} albums)</li>`).join('')}</ol></article>`;
+  res.send(renderIndexWithMeta(req, {
+    title: page.title,
+    description: `${page.blurb}${top.length ? ` Including ${top.slice(0, 3).map((p) => p.name).join(', ')}.` : ''}`.slice(0, 158),
+    bodyHtml: body,
+  }));
+});
+
 app.get('/recent', (req, res) => {
   logView(req, null);
   const [top] = recentlyAdded(1);
@@ -1138,7 +1183,8 @@ const SITEMAP_CHUNK = 40000;
 function sitemapUrlEntries(base) {
   // Every browse/category page plus every artist and album. Category pages catch timely
   // searches (In Memoriam right after a death) and evergreen decade/genre queries.
-  const staticPages = ['/', '/trending', '/top-rated', '/on-this-day', '/in-memoriam', '/artists', '/recent'];
+  const staticPages = ['/', '/people', '/people?role=producer', '/people?role=songwriter', '/people?role=performer', '/people?role=engineering',
+    '/trending', '/top-rated', '/on-this-day', '/in-memoriam', '/artists', '/recent'];
   const out = staticPages.map((p) => ({ loc: `${base}${p}` }));
   for (const { decade } of decadeCounts()) out.push({ loc: `${base}/decade/${decade}` });
   for (const { genre } of genreCounts(100)) out.push({ loc: `${base}/genre?name=${encodeURIComponent(genre)}` });

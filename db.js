@@ -1056,7 +1056,7 @@ export function nextPeopleToEnrich(limit = 20) {
 // ---- credits-themed Shorts ----
 // People with a real story: 6+ albums as producer/songwriter/etc. across 3+ different artists,
 // not featured yet; the ones search engines and visitors look at most come first.
-export function peopleForShort(limit = 10) {
+export function peopleForShort(limit = 10, { unposted = true } = {}) {
   return db.prepare(
     `WITH views AS (
        SELECT substr(path, 9) AS mbid, COUNT(*) AS n FROM page_views
@@ -1069,14 +1069,14 @@ export function peopleForShort(limit = 10) {
      FROM stats s JOIN artists a ON a.mbid = s.artist_mbid
      LEFT JOIN views v ON v.mbid = s.artist_mbid
      WHERE s.albums >= 6 AND s.acts >= 3
-       AND NOT EXISTS (SELECT 1 FROM social_posts sp WHERE sp.content_type = 'person_credits_yt' AND sp.item_id = a.mbid)
+       AND (? = 0 OR NOT EXISTS (SELECT 1 FROM social_posts sp WHERE sp.content_type = 'person_credits_yt' AND sp.item_id = a.mbid))
      ORDER BY views DESC, s.albums DESC
      LIMIT ?`
-  ).all(limit);
+  ).all(unposted ? 1 : 0, limit);
 }
 
 // Albums with cover art and enough credits to name names, not featured yet.
-export function albumsForCreditsShort(limit = 10) {
+export function albumsForCreditsShort(limit = 10, { unposted = true } = {}) {
   return db.prepare(
     `WITH views AS (
        SELECT substr(path, 8) AS mbid, COUNT(*) AS n FROM page_views
@@ -1090,10 +1090,49 @@ export function albumsForCreditsShort(limit = 10) {
      LEFT JOIN views v ON v.mbid = al.mbid
      WHERE al.cover_art_url IS NOT NULL AND p.n >= 4
        AND EXISTS (SELECT 1 FROM album_credits ac WHERE ac.album_mbid = al.mbid AND ac.role LIKE '%produc%')
-       AND NOT EXISTS (SELECT 1 FROM social_posts sp WHERE sp.content_type = 'album_credits_yt' AND sp.item_id = al.mbid)
+       AND (? = 0 OR NOT EXISTS (SELECT 1 FROM social_posts sp WHERE sp.content_type = 'album_credits_yt' AND sp.item_id = al.mbid))
      ORDER BY views DESC, p.n DESC
      LIMIT ?`
-  ).all(limit);
+  ).all(unposted ? 1 : 0, limit);
+}
+
+// ---- homepage + people pages ----
+// People pages viewed most in the last N days: real visitors first, then (to fill the list)
+// pages search engines crawl most. Bands excluded.
+export function topPeople(days = 7, limit = 6) {
+  const q = (botClause) => db.prepare(
+    `SELECT a.mbid AS id, a.name, a.disambiguation, a.wiki_image_url AS imageUrl, COUNT(*) AS views
+     FROM page_views pv JOIN artists a ON a.mbid = substr(pv.path, 9)
+     WHERE pv.path LIKE '/artist/%' AND pv.created_at >= datetime('now', ?) AND ${botClause}
+       AND COALESCE(a.type, 'Person') != 'Group'
+     GROUP BY a.mbid ORDER BY views DESC LIMIT ?`
+  ).all(`-${Math.max(1, days | 0)} days`, limit);
+  const human = q('pv.is_bot = 0');
+  if (human.length >= limit) return human;
+  const seen = new Set(human.map((p) => p.id));
+  return [...human, ...q('pv.is_bot = 1').filter((p) => !seen.has(p.id))].slice(0, limit);
+}
+
+export const PEOPLE_ROLES = ['producer', 'songwriter', 'performer', 'arrangement', 'engineering'];
+
+// People ranked by albums credited (optionally in one role), for /people pages.
+export function browsePeople(role = null, limit = 48, offset = 0) {
+  const where = role ? 'WHERE pc.category = ?' : '';
+  const args = role ? [role, limit, offset] : [limit, offset];
+  return db.prepare(
+    `SELECT a.mbid AS id, a.name, a.wiki_image_url AS imageUrl, COUNT(DISTINCT pc.rg_mbid) AS credits,
+            (SELECT category FROM person_credits x WHERE x.artist_mbid = a.mbid
+               GROUP BY category ORDER BY COUNT(DISTINCT rg_mbid) DESC LIMIT 1) AS topCategory
+     FROM person_credits pc JOIN artists a ON a.mbid = pc.artist_mbid
+     ${where}
+     GROUP BY pc.artist_mbid ORDER BY credits DESC, a.name LIMIT ? OFFSET ?`
+  ).all(...args);
+}
+
+export function countPeople(role = null) {
+  return role
+    ? db.prepare('SELECT COUNT(DISTINCT artist_mbid) AS n FROM person_credits WHERE category = ?').get(role).n
+    : db.prepare('SELECT COUNT(DISTINCT artist_mbid) AS n FROM person_credits').get().n;
 }
 
 export function artistImages(mbids, limit = 3) {
