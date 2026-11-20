@@ -10,7 +10,7 @@ import { buildHome } from './home.js';
 import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups, knownFor } from './credits.js';
 import { searchReleaseGroups, searchAlbumsByTitle, getAlbumDetail, searchArtist } from './mb.js';
 import { prioritizePerson, startPersonEnricher } from './personCredits.js';
-import { addDiscogsCredits, prioritizeAlbum, startSongCreditsRefresh } from './trackCredits.js';
+import { importAlbum, prioritizeAlbum, startSongCreditsRefresh } from './trackCredits.js';
 import { rankAlbums, hasStrongMatch, matchScore, publicAlbum } from './searchRank.js';
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
@@ -456,18 +456,7 @@ app.get('/api/album/:mbid', async (req, res) => {
   // Not in our db yet - this is the "funnel": fetch it live from MusicBrainz,
   // save it permanently, and serve it. Next person to look this up gets it instantly.
   try {
-    const detail = await getAlbumDetail(mbid);
-    const artistMbids = [];
-    for (const credit of detail.artistCredits || []) {
-      upsertArtist({ mbid: credit.mbid, name: credit.name, disambiguation: null });
-      artistMbids.push(credit.mbid);
-    }
-    // Discogs per-song credits go into detail.tracks before saving.
-    const { albumCredits } = await addDiscogsCredits(detail);
-    upsertAlbum(detail, artistMbids);
-    if (albumCredits.length) setAlbumCredits(mbid, albumCredits);
-    markEnriched(mbid);
-    markSongCredits(mbid);
+    await importAlbum(mbid);
     res.json(withCreditSummary(getAlbumLocal(mbid)));
   } catch (err) {
     console.error('live album lookup failed', mbid, err.message);

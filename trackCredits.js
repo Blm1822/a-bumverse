@@ -10,7 +10,10 @@
 import { runInBackground } from './lanes.js';
 import { cleanDiscogsName, discogsAlbumCredits, findDiscogsRelease } from './discogs.js';
 import { getAlbumDetail } from './mb.js';
-import { albumsNeedingSongCredits, saveSongCredits, albumSongCreditsAt } from './db.js';
+import {
+  albumsNeedingSongCredits, saveSongCredits, albumSongCreditsAt, savedRecordings, requeueAlbumsWithoutMusicians,
+  upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, markSongCredits,
+} from './db.js';
 
 const WRITER_RE = /writ|compos|lyric|music by|words by|songwriter/i;
 // Credits that are about the physical record or the business, not the song.
@@ -133,10 +136,37 @@ export function prioritizeAlbum(mbid) {
   if (albumSongCreditsAt(mbid) === null) jumpQueue.push(mbid);
 }
 
+// Fetch an album in full (songs, writers, musicians, Discogs credits) and save it,
+// replacing what was saved before. Used for albums opened for the first time
+// and when a refresh lands on a different release than the one saved.
+export async function importAlbum(mbid) {
+  const detail = await getAlbumDetail(mbid);
+  const artistMbids = [];
+  for (const credit of detail.artistCredits || []) {
+    upsertArtist({ mbid: credit.mbid, name: credit.name, disambiguation: null });
+    artistMbids.push(credit.mbid);
+  }
+  // Discogs per-song credits go into detail.tracks before saving.
+  const { albumCredits } = await addDiscogsCredits(detail);
+  upsertAlbum(detail, artistMbids);
+  if (albumCredits.length) setAlbumCredits(mbid, albumCredits);
+  markEnriched(mbid);
+  markSongCredits(mbid);
+  return detail;
+}
+
 export async function refreshAlbumSongCredits(mbid) {
   try {
-    // Writers are already saved; skip the per-song work lookups.
+    // Writers are already saved; skip the per-song work lookups...
     const detail = await getAlbumDetail(mbid, { works: false });
+    const saved = new Set(savedRecordings(mbid));
+    const same = (detail.tracks || []).filter((t) => saved.has(t.recordingMbid)).length;
+    // ...unless the fetch read a different release than the one saved (its songs,
+    // titles and writers may differ too): then re-import the album in full.
+    if (detail.tracks.length && same / detail.tracks.length < 0.6) {
+      const full = await importAlbum(mbid);
+      return { songs: full.tracks.filter((t) => t.performers.length).length, reimported: true };
+    }
     const { albumCredits, gained } = await addDiscogsCredits(detail);
     const n = saveSongCredits(mbid, detail.tracks, albumCredits, detail.releaseCount);
     return { songs: n, gained };
@@ -167,6 +197,8 @@ export function startSongCreditsRefresh({ everyMs = 4000, startAfterMs = 90000 }
     console.log('song credits refresh off (SONG_CREDITS=off)');
     return;
   }
+  const requeued = requeueAlbumsWithoutMusicians();
+  if (requeued) console.log(`song credits: ${requeued} albums with no musicians queued for another look`);
   // Background lane: visitors' MusicBrainz/Discogs requests go ahead of these.
   const bgTick = () => runInBackground(tick);
   setTimeout(() => {
