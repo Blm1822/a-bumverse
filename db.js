@@ -635,6 +635,27 @@ export function countAlbumsNeedingSongCredits() {
   return db.prepare('SELECT COUNT(*) AS n FROM albums WHERE song_credits_at IS NULL').get().n;
 }
 
+// Recording ids of an album's saved songs (to tell whether a fresh fetch read
+// the same release we saved).
+export function savedRecordings(albumMbid) {
+  return db.prepare('SELECT recording_mbid AS rec FROM tracks WHERE album_mbid = ?').all(albumMbid).map((r) => r.rec).filter(Boolean);
+}
+
+// One time (Nov 2026): albums saved with no musician on any song get another
+// look now that the main release is chosen better (Thriller, Nevermind).
+export function requeueAlbumsWithoutMusicians() {
+  const key = 'song_credits_requeue_v2';
+  if (db.prepare('SELECT value FROM app_state WHERE key = ?').get(key)) return 0;
+  const n = db.prepare(
+    `UPDATE albums SET song_credits_at = NULL
+     WHERE song_credits_at IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM tracks t JOIN track_credits tc ON tc.track_id = t.id
+       WHERE t.album_mbid = albums.mbid AND tc.kind = 'performer')`
+  ).run().changes;
+  db.prepare('INSERT INTO app_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, new Date().toISOString());
+  return Number(n);
+}
+
 // undefined: no such album; null: not refreshed yet; otherwise the time.
 export function albumSongCreditsAt(mbid) {
   const row = db.prepare('SELECT song_credits_at AS at FROM albums WHERE mbid = ?').get(mbid);

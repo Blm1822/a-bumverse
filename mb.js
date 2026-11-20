@@ -129,27 +129,24 @@ export function relRole(rel) {
   return attrs.length ? `${attrs.join(', ')} ${rel.type}` : rel.type;
 }
 
-// Pick a representative release for a release-group and pull its full
-// tracklist + credits (performers directly, writers via each track's work).
-export async function getAlbumDetail(rgId, { works = true } = {}) {
-  const rgUrl = `${MB_ROOT}/release-group/${rgId}?inc=releases+artist-credits+genres&fmt=json`;
-  const rg = await mbFetch(rgUrl);
+// Which of an album's releases to read credits from. MusicBrainz lists them in
+// no useful order, and a regional or late reissue often has its own recordings
+// with nothing linked (Thriller and Nevermind both landed on one). Prefer an
+// official release, with the album's own title, from a main English-language
+// market, in Latin script, earliest first.
+const MAIN_MARKETS = new Set(['US', 'GB', 'XW', 'XE', 'CA', 'AU']);
+export function rankReleases(rgTitle, releases) {
+  const score = (r) => (r.status === 'Official' ? 100 : 0)
+    + (MAIN_MARKETS.has(r.country) ? 20 : 0)
+    + (r.title === rgTitle ? 10 : 0)
+    + ((r['text-representation'] || {}).script === 'Latn' ? 5 : 0)
+    + (r.date ? 5 : 0);
+  return [...releases].sort((a, b) => score(b) - score(a) || String(a.date || '9999').localeCompare(String(b.date || '9999')));
+}
 
-  // MusicBrainz genres are community-voted; count is the vote tally. Keep the
-  // handful that actually got votes, strongest first, so a release with
-  // dozens of low-signal tags doesn't dump them all onto the album page.
-  const genres = (rg.genres || [])
-    .filter((g) => g.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5)
-    .map((g) => g.name);
-
-  const releases = rg.releases || [];
-  if (!releases.length) throw new Error('no releases found for this release-group');
-  const chosen = releases.find((r) => r.status === 'Official') || releases[0];
-
+async function readRelease(releaseId) {
   const relUrl =
-    `${MB_ROOT}/release/${chosen.id}` +
+    `${MB_ROOT}/release/${releaseId}` +
     // artist-rels is what brings in who played on each recording (instrument,
     // vocal, producer...). Without it, recording-level-rels only returned works.
     `?inc=recordings+artist-credits+artist-rels+recording-level-rels+work-rels+work-level-rels+labels&fmt=json`;
@@ -187,6 +184,38 @@ export async function getAlbumDetail(rgId, { works = true } = {}) {
       });
     }
   }
+  return { release, tracks, workIds, withPerformers: tracks.filter((t) => t.performers.length).length };
+}
+
+// Pick a representative release for a release-group and pull its full
+// tracklist + credits (performers directly, writers via each track's work).
+export async function getAlbumDetail(rgId, { works = true } = {}) {
+  const rgUrl = `${MB_ROOT}/release-group/${rgId}?inc=releases+artist-credits+genres&fmt=json`;
+  const rg = await mbFetch(rgUrl);
+
+  // MusicBrainz genres are community-voted; count is the vote tally. Keep the
+  // handful that actually got votes, strongest first, so a release with
+  // dozens of low-signal tags doesn't dump them all onto the album page.
+  const genres = (rg.genres || [])
+    .filter((g) => g.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+    .map((g) => g.name);
+
+  const releases = rg.releases || [];
+  if (!releases.length) throw new Error('no releases found for this release-group');
+
+  // Try the most likely "main" release first; if none of its songs credit any
+  // musicians (a regional pressing with its own, unlinked recordings, say), try
+  // the next one and keep whichever credits more songs.
+  const ranked = rankReleases(rg.title, releases);
+  let best = null;
+  for (const candidate of ranked.slice(0, 2)) {
+    const r = await readRelease(candidate.id);
+    if (!best || r.withPerformers > best.withPerformers) best = r;
+    if (best.withPerformers > 0) break;
+  }
+  const { release, tracks, workIds } = best;
 
   const workCredits = {};
   for (const workId of works ? workIds : []) {

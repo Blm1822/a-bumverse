@@ -127,3 +127,27 @@ test('songs for a person: by id, by name when unique, one row per song, roles me
   assert.match(personHtml(a, undefined, a), /Songs \(2\)/);
   assert.match(personDescription(a), /credited on 2 songs/);
 });
+
+test('main release: official, own title, main market, Latin script, earliest', async () => {
+  const { rankReleases } = await import('./mb.js');
+  const rels = [
+    { id: 'jp', status: 'Official', country: 'JP', title: 'スリラー', date: '1982-12-01', 'text-representation': { script: 'Jpan' } },
+    { id: 'promo', status: 'Promotion', country: 'US', title: 'Thriller', date: '1982-11-01' },
+    { id: 'us-reissue', status: 'Official', country: 'US', title: 'Thriller', date: '2001-10-16', 'text-representation': { script: 'Latn' } },
+    { id: 'us-orig', status: 'Official', country: 'US', title: 'Thriller', date: '1982-11-30', 'text-representation': { script: 'Latn' } },
+  ];
+  assert.deepEqual(rankReleases('Thriller', rels).map((r) => r.id), ['us-orig', 'us-reissue', 'jp', 'promo']);
+});
+
+test('albums saved with no musicians are queued again, once', () => {
+  db.upsertAlbum({ id: 'nomus', title: 'N', type: 'Album', date: '1991', artist: 'X', label: '', coverArtUrl: null, genres: [],
+    tracks: [{ position: 1, title: 'A', recordingMbid: 'ra', performers: [], writers: [] }] }, []);
+  db.markSongCredits('nomus');
+  assert.ok(db.albumSongCreditsAt('nomus'));
+  assert.ok(db.requeueAlbumsWithoutMusicians() >= 1);
+  assert.equal(db.albumSongCreditsAt('nomus'), null);
+  assert.ok(db.albumSongCreditsAt('rg1'), 'albums with musicians are left alone');
+  db.markSongCredits('nomus');
+  assert.equal(db.requeueAlbumsWithoutMusicians(), 0, 'only runs once');
+  assert.deepEqual(db.savedRecordings('nomus'), ['ra']);
+});
