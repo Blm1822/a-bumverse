@@ -30,7 +30,7 @@ test('old desktop browser IDs are bots; current ones and old phones are not', ()
 test('one visitor opening 100+ different pages becomes a bot; many people sharing a browser ID do not', () => {
   const before = human();
   // 30 real people on the same iPhone + Safari, 5 pages each = 150 distinct pages for that browser ID.
-  for (let u = 0; u < 30; u++) for (let i = 0; i < 5; i++) db.logPageView({ path: `/album/p${u}-${i}`, userAgent: IPHONE, ip: `10.0.0.${u}` });
+  for (let u = 0; u < 30; u++) for (let i = 0; i < 5; i++) db.logPageView({ path: `/album/p${u}-${i}`, referrer: 'https://albumverse.com/', userAgent: IPHONE, ip: `10.0.0.${u}` });
   assert.equal(human() - before, 150);
   // One scraper with the same ID from one address.
   for (let i = 0; i < 130; i++) db.logPageView({ path: `/artist/s${i}`, userAgent: IPHONE, ip: '203.0.113.9' });
@@ -61,7 +61,7 @@ test('Nov 2026 scrapers: rolling version cutoffs, old desktop Safari, forged sel
   }
   // Current browsers, Safari on an older Mac stuck at 17.6, Firefox ESR, and phones: people.
   for (const ua of [mac('17.6'), mac('26.1'), win(154), ff(140), ff(150),
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1']) {
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.7 Mobile/15E148 Safari/604.1']) {
     assert.equal(db.isOldDesktopBrowser(ua, nov), false, ua);
   }
   // A year later the same Chrome 154 counts as old, with no code change.
@@ -81,9 +81,27 @@ test('Nov 2026 scrapers: rolling version cutoffs, old desktop Safari, forged sel
 test('one visitor opening 40+ different pages in a day is a bot', () => {
   const before = human();
   const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15';
-  for (let i = 0; i < 35; i++) db.logPageView({ path: `/album/fan${i}`, userAgent: ua, ip: '10.9.9.9' });
+  for (let i = 0; i < 35; i++) db.logPageView({ path: `/album/fan${i}`, referrer: 'https://albumverse.com/album/x', userAgent: ua, ip: '10.9.9.9' });
   assert.equal(human() - before, 35, 'a keen fan is fine');
-  for (let i = 0; i < 10; i++) db.logPageView({ path: `/album/fan-more${i}`, userAgent: ua, ip: '10.9.9.8' });
-  for (let i = 0; i < 10; i++) db.logPageView({ path: `/artist/scrape${i}`, userAgent: ua, ip: '10.9.9.9' });
+  for (let i = 0; i < 10; i++) db.logPageView({ path: `/album/fan-more${i}`, referrer: 'https://albumverse.com/', userAgent: ua, ip: '10.9.9.8' });
+  for (let i = 0; i < 10; i++) db.logPageView({ path: `/artist/scrape${i}`, referrer: 'https://albumverse.com/', userAgent: ua, ip: '10.9.9.9' });
   assert.equal(human() - before, 10, 'past 40 the whole visitor stops counting');
+});
+
+test('stale iPhone IDs (e.g. iOS 17.0, never updated to 17.7) are bots; up-to-date ones are not', () => {
+  const ip = (v) => `Mozilla/5.0 (iPhone; CPU iPhone OS ${v} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1`;
+  for (const v of ['17_0', '17_1', '16_3', '15_0', '12_5_7']) assert.equal(db.isBotTraffic(ip(v)), true, v);
+  for (const v of ['17_7', '17_7_2', '16_7_10', '18_1', '26_1']) assert.equal(db.isBotTraffic(ip(v)), false, v);
+});
+
+test('one browser ID opening 20+ album/artist pages directly (no referrer) in a day is a bot', () => {
+  const ua = NEW_CHROME;
+  const before = human();
+  // Real people: land from Google, then click around.
+  for (let i = 0; i < 15; i++) db.logPageView({ path: `/album/g${i}`, referrer: 'https://www.google.com/', userAgent: ua, ip: `10.4.0.${i}` });
+  for (let i = 0; i < 15; i++) db.logPageView({ path: `/artist/c${i}`, referrer: 'https://albumverse.com/album/x', userAgent: ua, ip: `10.4.1.${i}` });
+  assert.equal(human() - before, 30);
+  // A scraper on the same browser ID, rotating addresses, opening pages directly.
+  for (let i = 0; i < 25; i++) db.logPageView({ path: `/album/d${i}`, userAgent: ua, ip: `10.5.0.${i}` });
+  assert.equal(human() - before, 30, 'all its direct opens stop counting; the people stay');
 });
