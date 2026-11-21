@@ -292,10 +292,12 @@ export function isOldDesktopBrowser(ua, now = Date.now()) {
   return false;
 }
 
-// Forged referrers: the site only serves https, and browsers always end an
-// address-only referrer with "/". So "http://albumverse.com…" or
-// "https://albumverse.com" with nothing after it never comes from a real click.
-const FAKE_SELF_REFERRER_RE = /^http:\/\/(www\.)?albumverse\.com(\/|$)|^https:\/\/(www\.)?albumverse\.com$/i;
+// Forged referrers: real browsers always end an address-only referrer with
+// "/" ("https://www.google.com/"), so any referrer that is a bare address
+// with nothing after it ("https://www.google.com", "https://albumverse.com")
+// is made up. And the site only serves https, so "http://albumverse.com…"
+// never comes from a real click either.
+const FAKE_SELF_REFERRER_RE = /^http:\/\/(www\.)?albumverse\.com(\/|$)|^https?:\/\/[^/?#]+$/i;
 
 // "{search_term_string}" is the placeholder in the site's search markup for
 // Google; only bots try it literally.

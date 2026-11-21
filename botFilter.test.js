@@ -74,6 +74,8 @@ test('Nov 2026 scrapers: rolling version cutoffs, old desktop Safari, forged sel
   assert.equal(db.isBotTraffic(now, 'https://albumverse.com/'), false);
   assert.equal(db.isBotTraffic(now, 'https://albumverse.com/album/x'), false);
   assert.equal(db.isBotTraffic(now, 'https://www.google.com/'), false);
+  assert.equal(db.isBotTraffic(now, 'https://www.google.com'), true, 'Google always sends the slash');
+  assert.equal(db.isBotTraffic(now, 'https://duckduckgo.com'), true);
 });
 
 test('one visitor opening 40+ different pages in a day is a bot', () => {
