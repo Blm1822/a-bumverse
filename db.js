@@ -260,30 +260,51 @@ const BOT_UA_RE = /bot|crawl|spider|slurp|facebookexternalhit|whatsapp|telegramb
 // within the site; it's the scanner's own request trail leaking through.
 const BOT_REFERRER_RE = /wp-(admin|content|login|json|includes|sitemap)|xmlrpc\.php|phpmyadmin|\.env$|wordpress/i;
 
-// Desktop browsers update themselves; a desktop Chrome, Edge or Firefox more
-// than about two years out of date is almost always a scraper wearing an old,
-// copied browser ID (Nov 2026: Chrome 120-122 / Firefox 122-127 at ~600 pages
-// each in two days). Phones are left alone: older phones can get stuck on old
-// versions for real.
-// Chrome/Edge 125 = May 2024; Firefox 128 = July 2024 (also the oldest
-// long-term-support Firefox some Linux setups still run).
-const OLD_DESKTOP = { Chrome: 125, Edg: 125, Firefox: 128 };
-export function isOldDesktopBrowser(ua) {
+// Desktop browsers update themselves; a desktop Chrome, Edge or Firefox about
+// a year out of date, or a desktop Safari older than 17.6, is almost always a
+// scraper wearing an old, copied browser ID. The cutoff moves with time
+// (Chrome and Firefox ship a new major version every 4 weeks), so it never
+// needs bumping by hand. Nov 2026 scrapers used Chrome 125-135, Firefox 128 and
+// Safari 17.0-17.2 at ~90 distinct pages each. Phones are left alone: older
+// phones can get stuck on old versions for real.
+const FOUR_WEEKS = 28 * 864e5;
+const versionNow = (base, since, now) => base + Math.floor((now - Date.parse(since)) / FOUR_WEEKS);
+export function oldBrowserCutoffs(now = Date.now()) {
+  const chrome = versionNow(120, '2023-12-05', now) - 15; // ~1 year back (Chrome skips a release now and then)
+  const firefox = versionNow(121, '2023-12-19', now) - 15;
+  return { Chrome: chrome, Edg: chrome, Firefox: firefox };
+}
+// Firefox long-term-support releases some Linux/work machines legitimately run.
+const FIREFOX_ESR = new Set([140, 153]);
+export function isOldDesktopBrowser(ua, now = Date.now()) {
   if (!ua || /Mobile|Android|iPhone|iPad/i.test(ua)) return false;
   if (!/Windows NT|Macintosh|X11|Linux x86_64/.test(ua)) return false;
-  for (const [name, min] of Object.entries(OLD_DESKTOP)) {
+  for (const [name, min] of Object.entries(oldBrowserCutoffs(now))) {
     const m = ua.match(new RegExp(`${name}\\/(\\d+)\\.`));
-    if (m && Number(m[1]) < min) return true;
+    if (m && Number(m[1]) < min && !(name === 'Firefox' && FIREFOX_ESR.has(Number(m[1])))) return true;
+  }
+  // Desktop Safari: "Version/17.0 Safari/..." (Chrome and Firefox don't send "Version/").
+  const saf = !/Chrome|Chromium|Firefox|Edg/.test(ua) && ua.match(/Version\/(\d+)\.(\d+)[^ ]* Safari\//);
+  if (saf) {
+    const [maj, min] = [Number(saf[1]), Number(saf[2])];
+    if (maj < 17 || (maj === 17 && min < 6)) return true;
   }
   return false;
 }
+
+// Forged referrers: real browsers always end an address-only referrer with
+// "/" ("https://www.google.com/"), so any referrer that is a bare address
+// with nothing after it ("https://www.google.com", "https://albumverse.com")
+// is made up. And the site only serves https, so "http://albumverse.com…"
+// never comes from a real click either.
+const FAKE_SELF_REFERRER_RE = /^http:\/\/(www\.)?albumverse\.com(\/|$)|^https?:\/\/[^/?#]+$/i;
 
 // "{search_term_string}" is the placeholder in the site's search markup for
 // Google; only bots try it literally.
 const TEMPLATE_QUERY_RE = /\{search_term_string\}/i;
 
 function isBotRequest(ua, referrer, query = null) {
-  return !ua || BOT_UA_RE.test(ua) || (!!referrer && BOT_REFERRER_RE.test(referrer))
+  return !ua || BOT_UA_RE.test(ua) || (!!referrer && (BOT_REFERRER_RE.test(referrer) || FAKE_SELF_REFERRER_RE.test(referrer)))
     || isOldDesktopBrowser(ua) || (!!query && TEMPLATE_QUERY_RE.test(String(query)));
 }
 
@@ -339,7 +360,12 @@ export function visitorId(ip, ua) {
   return createHash('sha256').update(`${VISITOR_SECRET}|${day}|${ip}|${ua || ''}`).digest('hex').slice(0, 16);
 }
 
-const BOT_DISTINCT_PATHS_PER_DAY = 100;
+// One visitor (address + browser ID) opening this many different pages in a
+// day is a scraper; credit-hopping fans stay well under it. Rows from before
+// visitor ids existed are judged per browser ID, which many real people share,
+// so that older check keeps the higher bar.
+const BOT_DISTINCT_PATHS_PER_DAY = 40;
+const BOT_DISTINCT_PATHS_PER_UA_DAY = 100;
 export function reclassifyBotTraffic() {
   const volumetric = db
     .prepare(
@@ -349,7 +375,7 @@ export function reclassifyBotTraffic() {
        GROUP BY user_agent, day
        HAVING COUNT(DISTINCT path) > ?`
     )
-    .all(BOT_DISTINCT_PATHS_PER_DAY);
+    .all(BOT_DISTINCT_PATHS_PER_UA_DAY);
   const markDayBot = db.prepare(
     "UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND visitor IS NULL AND user_agent = ? AND date(created_at) = ?"
   );
@@ -363,13 +389,15 @@ export function reclassifyBotTraffic() {
   for (const r of byVisitor) n += Number(markVisitor.run(r.visitor).changes);
   // Older rows (no visitor id): by browser ID and day, as before.
   for (const r of volumetric) n += Number(markDayBot.run(r.userAgent, r.day).changes);
-  // Old desktop browser IDs and template searches (rules added Nov 2026).
-  const rows = db.prepare('SELECT id, user_agent, query FROM page_views WHERE is_bot = 0').all();
+  // Old desktop browser IDs, forged referrers and template searches (rules
+  // added Nov 2026), judged by the date of each view.
+  const rows = db.prepare('SELECT id, user_agent, referrer, query, created_at FROM page_views WHERE is_bot = 0').all();
   const markBot = db.prepare('UPDATE page_views SET is_bot = 1 WHERE id = ?');
   db.exec('BEGIN');
   try {
     for (const r of rows) {
-      if (isOldDesktopBrowser(r.user_agent) || (r.query && TEMPLATE_QUERY_RE.test(r.query))) {
+      const at = Date.parse(`${r.created_at}Z`) || Date.now();
+      if (isOldDesktopBrowser(r.user_agent, at) || (r.referrer && FAKE_SELF_REFERRER_RE.test(r.referrer)) || (r.query && TEMPLATE_QUERY_RE.test(r.query))) {
         markBot.run(r.id);
         n++;
       }
