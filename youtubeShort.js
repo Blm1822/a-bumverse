@@ -40,6 +40,18 @@ function spotifySearchUrl(query) {
   return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
 }
 
+// First-second hooks (see video.js): the name and years for a tribute,
+// "45 years ago today" for an anniversary.
+export function tributeHook(name, born, died) {
+  const years = born && died ? `${born}–${died}` : died ? `died ${died}` : '';
+  return years ? `${name}\n${years}` : name;
+}
+export function yearsAgoHook(year, now = new Date()) {
+  if (!/^\d{4}$/.test(String(year || ''))) return '';
+  const n = now.getUTCFullYear() - Number(year);
+  return Number.isFinite(n) && n > 0 ? `${n} year${n === 1 ? '' : 's'} ago today` : '';
+}
+
 function inMemoriamScript() {
   const [artist] = inMemoriam(1);
   if (!artist || hasPostedAboutItem('in_memoriam_yt', artist.id)) return null;
@@ -59,7 +71,9 @@ function inMemoriamScript() {
     console.log(`In Memoriam YouTube pick "${artist.name}" has no usable images - falling through to On This Day/Trending.`);
     return null;
   }
+  const born = artist.bornDate ? artist.bornDate.slice(0, 4) : '';
   return {
+    hook: tributeHook(artist.name, born, year),
     title: `Remembering ${artist.name}`,
     subtitle: year ? `d. ${year}` : '',
     narration: `Remembering ${artist.name}${year ? `, who passed away in ${year}` : ''}. Explore their full discography on Albumverse.`,
@@ -88,6 +102,7 @@ function onThisDayScript() {
   }
   const year = (album.date || '').slice(0, 4);
   return {
+    hook: yearsAgoHook(year),
     title: `On This Day: ${album.title}`,
     subtitle: `${album.artist} · ${year}`,
     narration: `On this day in ${year}, ${album.artist} released "${album.title}." See the full tracklist and credits on Albumverse.`,
@@ -229,6 +244,7 @@ export async function buildDailyShort() {
       imagePaths,
       title: script.title,
       subtitle: script.subtitle,
+      hook: script.hook,
       narrationPath,
       musicPath,
       durationSeconds: narrationSeconds + END_PADDING_SECONDS,

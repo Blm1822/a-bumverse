@@ -61,7 +61,10 @@ function formatAssTime(seconds) {
 // One style for the title (larger, higher) and one for the subtitle
 // (smaller, just below it) - both anchored bottom-third via \an2 + MarginV
 // so they read like a caption card over the zooming cover art.
-function buildAssFile({ title, subtitle, durationSeconds }) {
+// Hook: a big line across the top, on screen from the very first frame, so
+// the first second says why to keep watching (a name and dates, "45 years
+// ago today") before anyone swipes away.
+export function buildAssFile({ title, subtitle, hook, durationSeconds }) {
   const end = formatAssTime(durationSeconds);
   return `[Script Info]
 ScriptType: v4.00+
@@ -72,12 +75,13 @@ PlayResY: ${HEIGHT}
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
 Style: Title,Inter,72,&H00FFFFFF,&H00000000,&HB0000000,1,3,3,0,2,60,60,520
 Style: Subtitle,Inter,46,&H00E8DCF9,&H00000000,&HB0000000,0,3,2,0,2,60,60,420
+Style: Hook,Inter,100,&H0000D7FF,&H00000000,&H90000000,1,1,6,2,8,60,60,240
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:00.00,${end},Title,,0,0,0,,${escapeAss(title)}
 Dialogue: 0,0:00:00.00,${end},Subtitle,,0,0,0,,${escapeAss(subtitle)}
-`;
+${hook ? `Dialogue: 1,0:00:00.00,${end},Hook,,0,0,0,,${escapeAss(hook)}\n` : ''}`;
 }
 
 // No ffprobe ships with ffmpeg-static (just the ffmpeg binary itself), but
@@ -111,13 +115,13 @@ const MIN_SEGMENT_SECONDS = 1.5;
  * burned-in title/subtitle caption, narration mixed over background music,
  * trimmed to `durationSeconds`.
  */
-export async function renderVideo({ imagePaths, title, subtitle, narrationPath, musicPath, durationSeconds, outPath }) {
+export async function renderVideo({ imagePaths, title, subtitle, hook, narrationPath, musicPath, durationSeconds, outPath }) {
   const images = (Array.isArray(imagePaths) ? imagePaths : [imagePaths])
     .slice(0, Math.max(1, Math.floor(durationSeconds / MIN_SEGMENT_SECONDS)));
   const segmentSeconds = durationSeconds / images.length;
 
   const assPath = path.join(os.tmpdir(), `albumverse-caption-${Date.now()}-${Math.random().toString(36).slice(2)}.ass`);
-  await fs.writeFile(assPath, buildAssFile({ title, subtitle, durationSeconds }));
+  await fs.writeFile(assPath, buildAssFile({ title, subtitle, hook, durationSeconds }));
 
   try {
     await new Promise((resolve, reject) => {

@@ -44,6 +44,7 @@ export function personShort(person, groups, siteUrl) {
   const name = person.name;
   const parts = picks.map((p) => `${strip(p.title)} for ${p.by}`);
   return {
+    hook: `${name}\n${verb} these?`,
     title: `Albums you didn't know ${name} ${verb}`.slice(0, 95),
     subtitle: picks.map((p) => strip(p.title)).slice(0, 3).join(' · '),
     narration: `${name} ${verb} ${list(parts)}. That's ${total} albums of credits. See them all on Albumverse.`,
@@ -72,6 +73,7 @@ export function albumShort(album, groups, siteUrl, personImages = []) {
   if (writers.length) lines.push(`Written by ${list(writers)}.`);
   lines.push('Every credit is on Albumverse.');
   return {
+    hook: 'Who played\non this?',
     title: `Who played on ${album.title}?`.slice(0, 95),
     subtitle: `${album.artist}${year ? ` · ${year}` : ''}`,
     narration: lines.join(' '),
