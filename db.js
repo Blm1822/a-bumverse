@@ -276,7 +276,18 @@ export function oldBrowserCutoffs(now = Date.now()) {
 }
 // Firefox long-term-support releases some Linux/work machines legitimately run.
 const FIREFOX_ESR = new Set([140, 153]);
+// iPhones: every phone that got iOS 15, 16 or 17 can update to at least 15.7,
+// 16.7 and 17.7, so a phone still reporting e.g. "iPhone OS 17_0" is almost
+// always a copied browser ID (Nov 2026: iOS 17.0/17.1 at ~80 pages a day).
+export function isStaleIPhone(ua) {
+  const m = ua && ua.match(/iPhone OS (\d+)_(\d+)/);
+  if (!m) return false;
+  const [maj, min] = [Number(m[1]), Number(m[2])];
+  return maj < 15 || (maj <= 17 && min < 7);
+}
+
 export function isOldDesktopBrowser(ua, now = Date.now()) {
+  if (isStaleIPhone(ua)) return true;
   if (!ua || /Mobile|Android|iPhone|iPad/i.test(ua)) return false;
   if (!/Windows NT|Macintosh|X11|Linux x86_64/.test(ua)) return false;
   for (const [name, min] of Object.entries(oldBrowserCutoffs(now))) {
@@ -389,6 +400,17 @@ export function reclassifyBotTraffic() {
   for (const r of byVisitor) n += Number(markVisitor.run(r.visitor).changes);
   // Older rows (no visitor id): by browser ID and day, as before.
   for (const r of volumetric) n += Number(markDayBot.run(r.userAgent, r.day).changes);
+  // Direct album/artist opens, per browser ID and day (rule added Nov 2026).
+  const direct = db.prepare(
+    `SELECT user_agent as ua, date(created_at) as day FROM page_views
+     WHERE is_bot = 0 AND user_agent IS NOT NULL AND referrer IS NULL AND (path LIKE '/album/%' OR path LIKE '/artist/%')
+     GROUP BY user_agent, day HAVING COUNT(DISTINCT path) > ?`
+  ).all(DIRECT_DEEP_PER_UA_DAY);
+  const markDirect = db.prepare(
+    `UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND user_agent = ? AND referrer IS NULL
+     AND (path LIKE '/album/%' OR path LIKE '/artist/%') AND date(created_at) = ?`
+  );
+  for (const r of direct) n += Number(markDirect.run(r.ua, r.day).changes);
   // Old desktop browser IDs, forged referrers and template searches (rules
   // added Nov 2026), judged by the date of each view.
   const rows = db.prepare('SELECT id, user_agent, referrer, query, created_at FROM page_views WHERE is_bot = 0').all();
@@ -1272,9 +1294,38 @@ export function artistIdsByExactNames(names) {
   return out;
 }
 
+// Scrapers that rotate addresses and use a current browser ID still give
+// themselves away: they open album and artist pages directly, with no
+// referrer, one after another. People arrive from Google, the home page or a
+// link, then click around (which sends a referrer). So when one browser ID
+// opens more than DIRECT_DEEP_PER_UA_DAY different album/artist pages
+// directly in a day, those direct opens are counted as bots.
+const DIRECT_DEEP_PER_UA_DAY = 20;
+const isDeep = (p) => /^\/(album|artist)\//.test(p || '');
+const directCounts = { day: '', seen: new Map(), flagged: new Set() };
+function trackDirectDeep(ua, p, referrer) {
+  if (!ua || referrer || !isDeep(p)) return false;
+  const day = new Date().toISOString().slice(0, 10);
+  if (directCounts.day !== day) Object.assign(directCounts, { day, seen: new Map(), flagged: new Set() });
+  if (directCounts.flagged.has(ua)) return true;
+  let set = directCounts.seen.get(ua);
+  if (!set) directCounts.seen.set(ua, (set = new Set()));
+  set.add(p);
+  if (set.size > DIRECT_DEEP_PER_UA_DAY) {
+    directCounts.flagged.add(ua);
+    directCounts.seen.delete(ua);
+    db.prepare(
+      `UPDATE page_views SET is_bot = 1 WHERE is_bot = 0 AND user_agent = ? AND referrer IS NULL
+       AND (path LIKE '/album/%' OR path LIKE '/artist/%') AND date(created_at) = ?`
+    ).run(ua, day);
+    return true;
+  }
+  return false;
+}
+
 export function logPageView({ path: p, query, referrer, userAgent, ip = null }) {
   const visitor = visitorId(ip, userAgent);
-  const bot = isBotRequest(userAgent, referrer, query) || trackVolume(visitor, p);
+  const bot = isBotRequest(userAgent, referrer, query) || trackVolume(visitor, p) || trackDirectDeep(userAgent, p, referrer);
   db.prepare('INSERT INTO page_views (path, query, referrer, user_agent, is_bot, visitor) VALUES (?, ?, ?, ?, ?, ?)').run(
     p, query || null, referrer || null, userAgent || null, bot ? 1 : 0, visitor
   );
