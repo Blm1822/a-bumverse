@@ -18,6 +18,7 @@ import { setArtistDeathFromExternalSource, getArtistBioStatus, setArtistBio } fr
 import { getArtistBio, looksMusical } from './wiki.js';
 import { checkAndPostDaily } from './socialPoster.js';
 import { checkAndPostShort } from './youtubeShort.js';
+import { importNotableDeaths } from './notableDeaths.js';
 
 const SPARQL_ENDPOINT = 'https://query.wikidata.org/sparql';
 const USER_AGENT = 'Albumverse/0.3.0 (music database project; contact: none)';
@@ -25,13 +26,16 @@ const USER_AGENT = 'Albumverse/0.3.0 (music database project; contact: none)';
 // (setArtistDeathFromExternalSource no-ops once died_date already matches),
 // so a wide net just means never missing one to a slow Wikidata edit.
 const LOOKBACK_DAYS = 90;
-const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // every 4 hours
+// Hourly: being first matters for tribute Shorts (people search right after
+// the news), and it's one small query - about 24 a day.
+const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 function buildQuery() {
   const cutoff = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  return `SELECT ?mbid ?dod WHERE {
+  return `SELECT ?mbid ?dod ?links WHERE {
     ?person wdt:P434 ?mbid .
     ?person wdt:P570 ?dod .
+    OPTIONAL { ?person wikibase:sitelinks ?links . }
     FILTER(?dod >= "${cutoff}"^^xsd:dateTime)
   }`;
 }
@@ -46,6 +50,7 @@ export async function fetchRecentDeaths() {
   return data.results.bindings.map((b) => ({
     mbid: b.mbid.value,
     diedDate: b.dod.value.slice(0, 10),
+    links: b.links ? Number(b.links.value) : 0,
   }));
 }
 
@@ -80,6 +85,12 @@ async function fillMissingBio(mbid) {
 export async function checkForDeaths() {
   try {
     const deaths = await fetchRecentDeaths();
+    // Well-known musicians who aren't on Albumverse yet get added first, so
+    // the loop below marks them and they get a page and a tribute too.
+    const imported = await importNotableDeaths(deaths).catch((err) => {
+      console.error('notable-death import failed:', err.message);
+      return [];
+    });
     const newlyMarked = [];
     for (const { mbid, diedDate } of deaths) {
       if (setArtistDeathFromExternalSource(mbid, diedDate)) {
@@ -98,7 +109,7 @@ export async function checkForDeaths() {
       await checkAndPostDaily().catch((err) => console.error('immediate Bluesky post check failed:', err.message));
       await checkAndPostShort().catch((err) => console.error('immediate YouTube post check failed:', err.message));
     }
-    return { checked: deaths.length, newlyMarked };
+    return { checked: deaths.length, imported, newlyMarked };
   } catch (err) {
     console.error('Wikidata death check failed:', err.message);
     return { error: err.message };
