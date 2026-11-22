@@ -47,6 +47,7 @@ export function tributeHook(name, born, died) {
   return years ? `${name}\n${years}` : name;
 }
 export function yearsAgoHook(year, now = new Date()) {
+  if (!/^\d{4}$/.test(String(year || ''))) return '';
   const n = now.getUTCFullYear() - Number(year);
   return Number.isFinite(n) && n > 0 ? `${n} year${n === 1 ? '' : 's'} ago today` : '';
 }
