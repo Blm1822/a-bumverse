@@ -91,6 +91,8 @@ export async function getArtistDetail(mbid) {
   const artist = await mbFetch(url);
   const lifeSpan = artist['life-span'] || {};
   return {
+    name: artist.name || null,
+    disambiguation: artist.disambiguation || '',
     type: artist.type || null,
     bornDate: lifeSpan.begin || null,
     endDate: lifeSpan.end || null,
