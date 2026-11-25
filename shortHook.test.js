@@ -22,3 +22,18 @@ test('the hook is drawn from the first frame, top of the screen, and left out wh
   assert.match(ass, /Style: Hook,Inter,100,.*,8,60,60,240/);
   assert.doesNotMatch(buildAssFile({ title: 'T', subtitle: 'S', durationSeconds: 9 }), /,Hook,/);
 });
+
+test('tribute script: band, age, date and note', async () => {
+  const { tributeScript, ageAt } = await import('./youtubeShort.js');
+  assert.equal(ageAt('1961-02-16', '2026-11-23'), 65);
+  const s = tributeScript({
+    person: { id: 'p1', name: 'Andy Taylor', bornDate: '1961-02-16', imageUrl: 'https://x/p.jpg' },
+    band: { id: 'b1', name: 'Duran Duran' }, diedDate: '2026-11-23', role: 'founding guitarist',
+    note: 'He co-wrote Rio and Hungry Like the Wolf', bandCovers: ['https://x/rio.jpg'],
+  });
+  assert.equal(s.title, 'Remembering Andy Taylor of Duran Duran');
+  assert.equal(s.hook, 'Andy Taylor\n1961–2026');
+  assert.match(s.narration, /^Remembering Andy Taylor, founding guitarist of Duran Duran, who passed away on November 23, 2026, at 65\. He co-wrote Rio and Hungry Like the Wolf\. See every/);
+  assert.deepEqual(s.imageUrls, ['https://x/p.jpg', 'https://x/rio.jpg']);
+  assert.equal(s.contentType, 'in_memoriam_yt');
+});

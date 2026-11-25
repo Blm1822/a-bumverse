@@ -15,7 +15,8 @@ import { rankAlbums, hasStrongMatch, matchScore, publicAlbum } from './searchRan
 import { getUpcomingShows } from './seatgeek.js';
 import { searchSetlists } from './setlistfm.js';
 import { startSocialPoster } from './socialPoster.js';
-import { buildDailyShort, startYoutubePoster } from './youtubeShort.js';
+import { buildDailyShort, startYoutubePoster, renderShort, tributeScript, alreadyTributed, recordShortPosted } from './youtubeShort.js';
+import { setArtistLifespan, artistAlbumCoversForRetrospective, artistImages } from './db.js';
 import { startWikidataDeathCheck, checkForDeaths } from './wikidataDeaths.js';
 import { uploadShort } from './youtube.js';
 import { getArtistBio, looksMusical } from './wiki.js';
@@ -1374,6 +1375,59 @@ app.get('/admin/upload-test-short', requireAnalyticsAuth, async (req, res) => {
     res.json({ uploaded: true, videoId, studioUrl: `https://studio.youtube.com/video/${videoId}/edit` });
   } finally {
     fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
+  }
+});
+
+// Post a "Remembering ..." Short right now for a big death, instead of
+// waiting for Wikidata to catch up. Browser-friendly GET (admin login):
+//   /admin/tribute?name=Andy Taylor&band=Duran Duran&died=2026-11-23
+//     &role=founding guitarist&note=He co-wrote Rio and Hungry Like the Wolf
+// Optional: mbid= (if the name matches more than one person), privacy=private
+// (upload to your Studio only), dry=1 (download the video, don't upload),
+// force=1 (post even if a tribute already went out).
+app.get('/admin/tribute', requireAnalyticsAuth, async (req, res) => {
+  const q = req.query;
+  const died = String(q.died || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(died)) return res.status(400).json({ error: 'died=YYYY-MM-DD is required' });
+  let band = null;
+  if (q.band) {
+    [band] = findArtistByExactName(String(q.band));
+    if (!band) return res.status(404).json({ error: `Band "${q.band}" isn't on Albumverse` });
+  }
+  let personId = q.mbid ? String(q.mbid) : null;
+  if (!personId) {
+    const matches = findArtistByExactName(String(q.name || ''));
+    if (!matches.length) return res.status(404).json({ error: `No one named "${q.name}" on Albumverse` });
+    // Several people share a name: pick the one credited on the band's records.
+    const pick = band ? matches.find((m) => getPersonCredits(m.id).some((c) => String(c.byArtist || '').toLowerCase() === band.name.toLowerCase())) : matches.length === 1 ? matches[0] : null;
+    if (!pick) return res.status(409).json({ error: 'More than one person with that name; add mbid=', matches });
+    personId = pick.id;
+  }
+  const local = getArtistLocal(personId);
+  if (!local) return res.status(404).json({ error: `mbid ${personId} isn't on Albumverse` });
+  if (alreadyTributed(personId) && !q.force && !q.dry && q.privacy !== 'private') return res.json({ uploaded: false, reason: `A tribute for ${local.name} already went out. Add force=1 to post another.` });
+
+  setArtistLifespan(personId, { type: 'Person', bornDate: local.bornDate, diedDate: died });
+  const person = { id: personId, name: local.name, bornDate: local.bornDate, imageUrl: artistImages([personId], 1)[0] || null };
+  const script = tributeScript({
+    person, band, diedDate: died, role: q.role ? String(q.role) : '', note: q.note ? String(q.note) : '',
+    bandCovers: band ? artistAlbumCoversForRetrospective(band.id, 4) : [],
+    ownCovers: artistAlbumCoversForRetrospective(personId, 2),
+  });
+  if (!script.imageUrls.length) return res.json({ uploaded: false, reason: 'No photo or album covers to show' });
+
+  const result = await renderShort(script).catch((err) => ({ skipped: true, reason: err.message }));
+  if (result.skipped) return res.json({ uploaded: false, reason: result.reason, narration: script.narration });
+  const cleanup = () => fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
+  if (q.dry) return res.download(result.outPath, 'tribute.mp4', cleanup);
+  try {
+    const privacyStatus = q.privacy === 'private' ? 'private' : 'public';
+    const { videoId, error } = await uploadShort(fs.readFileSync(result.outPath), { title: result.title, description: result.description, privacyStatus });
+    if (!videoId) return res.json({ uploaded: false, reason: `Upload failed: ${error}` });
+    if (privacyStatus === 'public') recordShortPosted('in_memoriam_yt', personId);
+    res.json({ uploaded: true, privacyStatus, title: result.title, narration: script.narration, watch: `https://youtube.com/shorts/${videoId}`, studio: `https://studio.youtube.com/video/${videoId}/edit` });
+  } finally {
+    cleanup();
   }
 });
 

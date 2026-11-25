@@ -215,7 +215,12 @@ export async function buildDailyShort() {
   };
   const script = inMemoriamScript() || (hasPostedToday(PLATFORM, todayUTC()) ? null : daily());
   if (!script) return skipped('Nothing new to cover today (already posted about everything current In Memoriam/On This Day/Trending picks have to offer, or none of today\'s picks have usable images).');
+  return renderShort(script);
+}
 
+// Narration + images + music -> a vertical video on disk. Shared by the
+// daily cascade and the manual tribute route.
+export async function renderShort(script) {
   const musicPath = await pickMusicTrack();
   if (!musicPath) return skipped('No royalty-free background tracks in assets/music/ - see assets/music/README.md.');
 
@@ -304,4 +309,42 @@ export async function checkAndPostShort() {
 export function startYoutubePoster() {
   checkAndPostShort();
   setInterval(checkAndPostShort, 60 * 60 * 1000).unref();
+}
+
+// ---------------------------------------------------------------- tribute now
+// A hand-triggered "Remembering ..." Short for a big death, without waiting
+// for Wikidata to record it (often hours or a day behind the news). Uses the
+// band's classic covers, since a band member's own solo records are rarely
+// the ones people know. Sets the death date on the site too, so the person
+// shows up in In Memoriam, and records the post so the automatic tribute
+// doesn't repeat it later.
+const fmtDate = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+export function ageAt(born, died) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(born || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(died || ''))) return null;
+  const [by, bm, bd] = born.split('-').map(Number), [dy, dm, dd] = died.split('-').map(Number);
+  return dy - by - (dm < bm || (dm === bm && dd < bd) ? 1 : 0);
+}
+export function tributeScript({ person, band, diedDate, role, note, bandCovers = [], ownCovers = [] }) {
+  const age = ageAt(person.bornDate, diedDate);
+  const who = band ? `${person.name}${role ? `, ${role} of ${band.name}` : ` of ${band.name}`}` : person.name;
+  const narration = [
+    `Remembering ${who}, who passed away on ${fmtDate(diedDate)}${age ? `, at ${age}` : ''}.`,
+    note ? String(note).trim().replace(/([^.!?])$/, '$1.') : '',
+    'See every record he played on, wrote and produced on Albumverse.',
+  ].filter(Boolean).join(' ');
+  const imageUrls = [person.imageUrl, ...bandCovers, ...ownCovers].filter(Boolean).slice(0, 6);
+  return {
+    hook: tributeHook(person.name, person.bornDate ? person.bornDate.slice(0, 4) : '', diedDate.slice(0, 4)),
+    title: `Remembering ${person.name}${band ? ` of ${band.name}` : ''}`.slice(0, 95),
+    subtitle: band ? band.name : '',
+    narration,
+    imageUrls,
+    contentType: 'in_memoriam_yt',
+    itemId: person.id,
+    url: `${SITE_URL}/artist/${person.id}?ref=yt`,
+    listenUrl: spotifySearchUrl(band ? `${person.name} ${band.name}` : person.name),
+  };
+}
+export function alreadyTributed(mbid) {
+  return hasPostedAboutItem('in_memoriam_yt', mbid);
 }
