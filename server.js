@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { searchLocal, countSearchLocal, getAlbumLocal, albumExists, upsertArtist, upsertAlbum, setAlbumCredits, markEnriched, markSongCredits, stats, recentlyAdded, listArtists, getArtistLocal, setArtistBio, sitemapAlbums, sitemapArtists, logPageView, analyticsSummary, featuredArtist, trendingSearches, decadeCounts, albumsByDecade, countAlbumsByDecade, listArtistsPage, countArtistsWithAlbums, recentlyAddedPage, genreCounts, albumsByGenre, similarAlbums, similarArtists, randomAlbumId, trendingAlbums, topRatedAlbums, createUser, getUserByUsername, createSession, getSessionUser, deleteSession, upsertReview, deleteReview, getUserReviewForAlbum, albumRatingSummary, getReviewsForAlbum, countReviewsForAlbum, getPublicUser, getReviewsByUser, countReviewsByUser, recentReviews, onThisDayAlbums, countOnThisDayAlbums, inMemoriam, countInMemoriam, updatePasswordHash, setRecoveryCodeHash, deleteSessionsForUser, deleteOtherSessionsForUser, addToWatchlist, removeFromWatchlist, isInWatchlist, getWatchlistAlbums, countWatchlistAlbums, getWatchlistArtists, countWatchlistArtists, getAppState, setAppState, findArtistsByName, logEvent, goalSummary, getPersonCredits, creditsFetchedAt, findArtistByExactName, searchPeople, collaboratorsFor, artistIdsByExactNames, browsePeople, countPeople, PEOPLE_ROLES, songsForPerson, isBotTraffic, reclassifyBotTraffic } from './db.js';
 import { buildHome } from './home.js';
 import { summarizeCredits, creditsDescription, creditsTitle, creditsHtml, personSummary, personTitle, personDescription, personHtml, personCreditGroups, knownFor } from './credits.js';
-import { searchReleaseGroups, searchAlbumsByTitle, getAlbumDetail, searchArtist } from './mb.js';
+import { searchReleaseGroups, searchAlbumsByTitle, getAlbumDetail, searchArtist, mbFetch } from './mb.js';
+import { importNotableDeaths } from './notableDeaths.js';
 import { prioritizePerson, startPersonEnricher } from './personCredits.js';
 import { importAlbum, prioritizeAlbum, startSongCreditsRefresh } from './trackCredits.js';
 import { rankAlbums, hasStrongMatch, matchScore, publicAlbum } from './searchRank.js';
@@ -1394,20 +1395,41 @@ app.get('/admin/tribute', requireAnalyticsAuth, async (req, res) => {
     [band] = findArtistByExactName(String(q.band));
     if (!band) return res.status(404).json({ error: `Band "${q.band}" isn't on Albumverse` });
   }
+  // Undo: clear a death date set by mistake.
+  if (q.clear && q.mbid) {
+    const a = getArtistLocal(String(q.mbid));
+    if (!a) return res.status(404).json({ error: 'not found' });
+    setArtistLifespan(a.id, { type: a.type, bornDate: a.bornDate, diedDate: null });
+    return res.json({ cleared: true, name: a.name });
+  }
   let personId = q.mbid ? String(q.mbid) : null;
+  if (!personId && band) {
+    // The band's own member list on MusicBrainz is the reliable way to tell
+    // two people with the same name apart (e.g. Duran Duran's Andy Taylor vs
+    // Iron Maiden's manager Andy Taylor).
+    try {
+      const data = await mbFetch(`https://musicbrainz.org/ws/2/artist/${band.id}?inc=artist-rels&fmt=json`);
+      const want = String(q.name || '').toLowerCase();
+      const member = (data.relations || []).find((r) => r.type === 'member of band' && String(r.artist?.name || '').toLowerCase() === want);
+      if (member) personId = member.artist.id;
+    } catch (err) {
+      return res.status(502).json({ error: `MusicBrainz lookup failed: ${err.message}` });
+    }
+    if (!personId) return res.status(404).json({ error: `No member of ${band.name} named "${q.name}" on MusicBrainz; add mbid=` });
+  }
   if (!personId) {
     const matches = findArtistByExactName(String(q.name || ''));
-    if (!matches.length) return res.status(404).json({ error: `No one named "${q.name}" on Albumverse` });
-    // Several people share a name: pick the one credited on the band's records.
-    const pick = band ? matches.find((m) => getPersonCredits(m.id).some((c) => String(c.byArtist || '').toLowerCase() === band.name.toLowerCase())) : matches.length === 1 ? matches[0] : null;
-    if (!pick) return res.status(409).json({ error: 'More than one person with that name; add mbid=', matches });
-    personId = pick.id;
+    if (matches.length !== 1) return res.status(409).json({ error: 'Add band= or mbid= to say which person', matches });
+    personId = matches[0].id;
+  }
+  if (!getArtistLocal(personId)) {
+    // Not on the site yet: add them with their own albums first.
+    await importNotableDeaths([{ mbid: personId, diedDate: died, links: 999 }], { tried: () => false, markTried: () => {} });
   }
   const local = getArtistLocal(personId);
   if (!local) return res.status(404).json({ error: `mbid ${personId} isn't on Albumverse` });
   if (alreadyTributed(personId) && !q.force && !q.dry && q.privacy !== 'private') return res.json({ uploaded: false, reason: `A tribute for ${local.name} already went out. Add force=1 to post another.` });
 
-  setArtistLifespan(personId, { type: 'Person', bornDate: local.bornDate, diedDate: died });
   const person = { id: personId, name: local.name, bornDate: local.bornDate, imageUrl: artistImages([personId], 1)[0] || null };
   const script = tributeScript({
     person, band, diedDate: died, role: q.role ? String(q.role) : '', note: q.note ? String(q.note) : '',
@@ -1419,12 +1441,18 @@ app.get('/admin/tribute', requireAnalyticsAuth, async (req, res) => {
   const result = await renderShort(script).catch((err) => ({ skipped: true, reason: err.message }));
   if (result.skipped) return res.json({ uploaded: false, reason: result.reason, narration: script.narration });
   const cleanup = () => fs.rm(path.dirname(result.outPath), { recursive: true, force: true }, () => {});
-  if (q.dry) return res.download(result.outPath, 'tribute.mp4', cleanup);
+  if (q.dry) {
+    res.set('X-Tribute-For', `${local.name} (${personId})`);
+    return res.download(result.outPath, `tribute-${local.name.replace(/[^a-z0-9]+/gi, '-')}.mp4`, cleanup);
+  }
   try {
     const privacyStatus = q.privacy === 'private' ? 'private' : 'public';
     const { videoId, error } = await uploadShort(fs.readFileSync(result.outPath), { title: result.title, description: result.description, privacyStatus });
     if (!videoId) return res.json({ uploaded: false, reason: `Upload failed: ${error}` });
-    if (privacyStatus === 'public') recordShortPosted('in_memoriam_yt', personId);
+    if (privacyStatus === 'public') {
+      setArtistLifespan(personId, { type: 'Person', bornDate: local.bornDate, diedDate: died });
+      recordShortPosted('in_memoriam_yt', personId);
+    }
     res.json({ uploaded: true, privacyStatus, title: result.title, narration: script.narration, watch: `https://youtube.com/shorts/${videoId}`, studio: `https://studio.youtube.com/video/${videoId}/edit` });
   } finally {
     cleanup();
