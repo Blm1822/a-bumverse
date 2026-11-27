@@ -88,7 +88,11 @@ export function albumShort(album, groups, siteUrl, personImages = []) {
 export function rotation(date = new Date()) {
   const start = Date.UTC(date.getUTCFullYear(), 0, 0);
   const day = Math.floor((date.getTime() - start) / 86400000);
-  const order = ['person', 'album', 'on_this_day'];
-  const i = day % order.length;
-  return [...order.slice(i), ...order.slice(0, i)];
+  // Weighted by what's working on YouTube (late Nov 2026): "Who played on <album>"
+  // and On This Day get 500-1,400 views; "Albums you didn't know <songwriter> wrote"
+  // gets ~40-110. So album and On This Day alternate, and the songwriter format
+  // runs once a week. The rest of the list is the fallback order for that day.
+  const week = ['album', 'on_this_day', 'album', 'on_this_day', 'album', 'on_this_day', 'person'];
+  const first = week[day % week.length];
+  return [first, ...['album', 'on_this_day', 'person'].filter((k) => k !== first)];
 }

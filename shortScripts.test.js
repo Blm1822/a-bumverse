@@ -46,10 +46,14 @@ test('album short skipped when credits are too thin', () => {
   assert.equal(albumShort(thin, summarizeCredits(thin), 'x'), null);
 });
 
-test('rotation cycles through the three formats', () => {
-  const a = rotation(new Date(Date.UTC(2026, 10, 18)));
-  const b = rotation(new Date(Date.UTC(2026, 10, 19)));
-  assert.equal(a.length, 3);
-  assert.notEqual(a[0], b[0]);
-  assert.deepEqual([...a].sort(), ['album', 'on_this_day', 'person']);
+test('rotation: album and On This Day alternate, songwriter once a week', () => {
+  const firsts = [];
+  for (let d = 0; d < 7; d++) {
+    const r = rotation(new Date(Date.UTC(2026, 10, 18 + d)));
+    assert.equal(new Set(r).size, 3, 'every format stays in the fallback order');
+    firsts.push(r[0]);
+  }
+  assert.equal(firsts.filter((k) => k === 'person').length, 1);
+  assert.equal(firsts.filter((k) => k === 'album').length, 3);
+  assert.equal(firsts.filter((k) => k === 'on_this_day').length, 3);
 });
